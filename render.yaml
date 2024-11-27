@@ -11,7 +11,9 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
       python -m spacy download en_core_web_lg
+      pip install gunicorn
     startCommand: |
+      export VIRTUAL_ENV=/opt/render/project/src/.venv
       . .venv/bin/activate
       chmod +x start.sh
       ./start.sh
@@ -20,3 +22,5 @@ services:
         value: 10000
       - key: PYTHONUNBUFFERED
         value: true
+      - key: PYTHONPATH
+        value: /opt/render/project/src
