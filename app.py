@@ -1559,7 +1559,7 @@ from flask_bootstrap import Bootstrap
 from flask_cors import CORS
 import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 Bootstrap(app)
 CORS(app)  # Enable CORS for all routes
 
