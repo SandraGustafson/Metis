@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: art-education-app
+    env: python
+    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_lg
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: PORT
+        value: 10000
+      - key: MET_API_KEY
+        value: not_required
+      - key: AIC_API_KEY
+        value: not_required
