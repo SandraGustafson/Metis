@@ -1558,8 +1558,19 @@ from flask import Flask, render_template, request, jsonify
 from flask_bootstrap import Bootstrap
 from flask_cors import CORS
 import os
+import spacy
 
-app = Flask(__name__, static_folder='static')
+# Initialize spaCy - make it a global variable
+try:
+    nlp = spacy.load('en_core_web_lg')
+except OSError:
+    # If model is not found, download it
+    os.system('python -m spacy download en_core_web_lg')
+    nlp = spacy.load('en_core_web_lg')
+
+app = Flask(__name__, 
+    static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
+    static_url_path='/static')
 Bootstrap(app)
 CORS(app)  # Enable CORS for all routes
 
