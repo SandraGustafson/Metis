@@ -1575,7 +1575,7 @@ Bootstrap(app)
 CORS(app)  # Enable CORS for all routes
 
 # Get port from environment variable (for deployment)
-port = int(os.environ.get('PORT', 10000))
+port = int(os.environ.get('PORT', 8080))
 
 @app.route('/')
 def home():
@@ -1682,4 +1682,4 @@ def search():
         return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)
