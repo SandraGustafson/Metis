@@ -7,14 +7,13 @@ services:
     pythonVersion: 3.11.10
     buildCommand: |
       python -m venv .venv
-      source .venv/bin/activate
-      python -m pip install --upgrade pip
-      python -m pip install -r requirements.txt
-      python -m pip install gunicorn
+      . .venv/bin/activate
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      pip install gunicorn
       python -m spacy download en_core_web_sm
     startCommand: |
-      source .venv/bin/activate
-      export PYTHONPATH=/opt/render/project/src
+      . .venv/bin/activate
       gunicorn --bind 0.0.0.0:$PORT app:app --log-level debug
     envVars:
       - key: PYTHONUNBUFFERED
