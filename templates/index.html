@@ -1,0 +1,197 @@
+{% extends "bootstrap/base.html" %}
+
+{% block title %}Art Education Resource Finder{% endblock %}
+
+{% block styles %}
+{{super()}}
+<style>
+    body {
+        padding: 20px;
+        background-color: #f8f9fa;
+    }
+    .header {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+    .search-container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .artwork-card {
+        margin-bottom: 30px;
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 20px;
+    }
+    .artwork-image {
+        max-width: 100%;
+        height: auto;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+    .artwork-info {
+        margin-top: 15px;
+    }
+    .loading {
+        text-align: center;
+        display: none;
+    }
+    #results {
+        margin-top: 40px;
+    }
+    .source-tag {
+        font-size: 0.8em;
+        color: #666;
+        font-style: italic;
+    }
+    .api-status {
+        margin-top: 20px;
+        font-size: 0.9em;
+        color: #666;
+    }
+    .error-message {
+        color: #721c24;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 20px 0;
+    }
+    .tags {
+        margin-top: 10px;
+        font-size: 0.9em;
+    }
+    .tags span {
+        display: inline-block;
+        background-color: #e9ecef;
+        padding: 2px 8px;
+        border-radius: 12px;
+        margin-right: 5px;
+        margin-bottom: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header">
+        <h1>Art Education Resource Finder</h1>
+        <p class="lead">Discover artwork that enhances your teaching themes</p>
+    </div>
+
+    <div class="search-container">
+        <form id="searchForm" onsubmit="searchArtwork(event)">
+            <div class="form-group">
+                <label for="theme">What theme or topic are you teaching?</label>
+                <input type="text" class="form-control" id="theme" name="theme" 
+                       placeholder="Enter a theme (e.g., democracy, industrial revolution, nature)" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Find Relevant Artwork</button>
+        </form>
+    </div>
+
+    <div class="loading" id="loading">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+        <p>Searching for artwork...</p>
+    </div>
+
+    <div id="error-container"></div>
+    <div id="results"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{super()}}
+<script>
+function searchArtwork(event) {
+    event.preventDefault();
+    
+    const theme = document.getElementById('theme').value;
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
+    const errorContainer = document.getElementById('error-container');
+    
+    loading.style.display = 'block';
+    results.innerHTML = '';
+    errorContainer.innerHTML = '';
+    
+    const formData = new FormData();
+    formData.append('theme', theme);
+    
+    fetch('/search', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || 'An error occurred while searching');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        loading.style.display = 'none';
+        
+        // Display API errors if any
+        if (data.api_errors && data.api_errors.length > 0) {
+            const errorHTML = data.api_errors.map(error => 
+                `<div class="error-message">${error}</div>`
+            ).join('');
+            errorContainer.innerHTML = errorHTML;
+        }
+        
+        if (!data.results || data.results.length === 0) {
+            results.innerHTML = `<div class="alert alert-info">No artwork found for this theme. Try a different search term.</div>`;
+            return;
+        }
+        
+        const artworksHTML = data.results.map(artwork => `
+            <div class="artwork-card">
+                <img src="${artwork.image_url}" alt="${artwork.title}" class="artwork-image">
+                <div class="artwork-info">
+                    <h3>${artwork.title}</h3>
+                    ${artwork.artist ? `<p><strong>Artist:</strong> ${artwork.artist}</p>` : ''}
+                    ${artwork.date ? `<p><strong>Date:</strong> ${artwork.date}</p>` : ''}
+                    ${artwork.medium ? `<p><strong>Medium:</strong> ${artwork.medium}</p>` : ''}
+                    ${artwork.culture ? `<p><strong>Culture:</strong> ${artwork.culture}</p>` : ''}
+                    ${artwork.period ? `<p><strong>Period:</strong> ${artwork.period}</p>` : ''}
+                    ${artwork.description ? `
+                        <div class="description">
+                            ${artwork.description.split('\n').map(paragraph => 
+                                paragraph ? `<p>${paragraph}</p>` : ''
+                            ).join('')}
+                        </div>
+                    ` : ''}
+                    ${artwork.tags ? `
+                        <div class="tags">
+                            ${artwork.tags.split(',').map(tag => 
+                                tag.trim() ? `<span>${tag.trim()}</span>` : ''
+                            ).join('')}
+                        </div>
+                    ` : ''}
+                    <p class="source-tag">
+                        Source: ${artwork.source}
+                        ${artwork.source_url ? `<br><a href="${artwork.source_url}" target="_blank">View more details</a>` : ''}
+                    </p>
+                </div>
+            </div>
+        `).join('');
+        
+        results.innerHTML = artworksHTML;
+    })
+    .catch(error => {
+        loading.style.display = 'none';
+        errorContainer.innerHTML = `<div class="error-message">${error.message}</div>`;
+        console.error('Error:', error);
+    });
+}
+</script>
+{% endblock %}
