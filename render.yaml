@@ -2,15 +2,8 @@ services:
   - type: web
     name: art-education-app
     env: python
-    buildCommand: |
-      python -m venv venv
-      . venv/bin/activate
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      python -m spacy download en_core_web_lg
-    startCommand: |
-      . venv/bin/activate
-      ./venv/bin/gunicorn --bind 0.0.0.0:$PORT app:app
+    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_lg
+    startCommand: gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.10
@@ -20,3 +13,5 @@ services:
         value: not_required
       - key: AIC_API_KEY
         value: not_required
+    healthCheckPath: /
+    autoDeploy: true
