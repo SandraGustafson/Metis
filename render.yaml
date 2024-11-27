@@ -3,14 +3,25 @@ services:
     name: art-education-app
     env: python
     buildCommand: |
-      python -m venv .venv
+      # Ensure Python is available
+      curl -sSL https://install.python-poetry.org | python3 -
+      export PATH="/opt/render/.local/bin:$PATH"
+      python3 -m venv .venv
       . .venv/bin/activate
-      pip install --upgrade pip
-      pip install -r requirements.txt
+      
+      # Upgrade pip and install dependencies
+      python -m pip install --upgrade pip
+      python -m pip install wheel
+      python -m pip install -r requirements.txt
       python -m spacy download en_core_web_lg
+      
+      # Verify installations
+      python -m pip list
+      which gunicorn
     startCommand: |
       . .venv/bin/activate
-      gunicorn app:app
+      export PYTHONPATH="${PYTHONPATH}:${PWD}"
+      gunicorn app:app --log-level debug
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.10
@@ -20,5 +31,7 @@ services:
         value: not_required
       - key: AIC_API_KEY
         value: not_required
+      - key: PYTHONUNBUFFERED
+        value: "true"
     healthCheckPath: /
     autoDeploy: true
