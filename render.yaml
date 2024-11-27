@@ -9,7 +9,7 @@ services:
       python -m spacy download en_core_web_lg
     startCommand: |
       . .venv/bin/activate
-      python -m gunicorn app:app
+      /opt/render/.local/bin/gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.10
