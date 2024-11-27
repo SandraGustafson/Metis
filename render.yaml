@@ -11,12 +11,14 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
       python -m spacy download en_core_web_sm
-      pip install gunicorn
     startCommand: |
       . .venv/bin/activate
-      gunicorn app:app
+      export PATH="/opt/render/project/src/.venv/bin:$PATH"
+      gunicorn --log-level debug app:app
     envVars:
       - key: PYTHONUNBUFFERED
         value: true
       - key: PYTHON_VERSION
         value: 3.11.10
+      - key: PATH
+        value: /opt/render/project/src/.venv/bin:$PATH
