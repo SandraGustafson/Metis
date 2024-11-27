@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: metis-art-education
+    name: metis
     env: python
     region: oregon
     plan: free
@@ -10,17 +10,13 @@ services:
       . .venv/bin/activate
       pip install --upgrade pip
       pip install -r requirements.txt
-      python -m spacy download en_core_web_lg
+      python -m spacy download en_core_web_sm
       pip install gunicorn
     startCommand: |
-      export VIRTUAL_ENV=/opt/render/project/src/.venv
       . .venv/bin/activate
-      chmod +x start.sh
-      ./start.sh
+      gunicorn app:app
     envVars:
-      - key: PORT
-        value: 10000
       - key: PYTHONUNBUFFERED
         value: true
-      - key: PYTHONPATH
-        value: /opt/render/project/src
+      - key: PYTHON_VERSION
+        value: 3.11.10

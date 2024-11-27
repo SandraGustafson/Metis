@@ -252,7 +252,14 @@ def get_time_period(theme: str) -> Dict[str, Any]:
             'keywords': []
         }
     
-    return {'is_historical_period': False, 'keywords': []}
+    # Return a complete dictionary even when no period is found
+    return {
+        'name': None,
+        'start': None,
+        'end': None,
+        'is_historical_period': False,
+        'keywords': []
+    }
 
 def extract_year_from_date(date_str: str) -> Optional[int]:
     """
@@ -284,91 +291,38 @@ def calculate_relevance_score(artwork: Dict[str, Any], theme_info: Dict[str, Any
     Calculate relevance score treating theme as a single concept.
     Explicitly excludes artist names from matching and considers historical periods.
     """
-    score = 0.0
-    
-    # Get artist name to exclude from matching
-    artist_name = artwork.get('artist', '').lower()
-    
-    # Combine all relevant artwork text fields EXCEPT artist name
-    artwork_text = ' '.join(filter(None, [
-        artwork.get('title', ''),
-        artwork.get('description', ''),
-        artwork.get('medium', ''),
-        artwork.get('culture', ''),
-        artwork.get('period', ''),
-        artwork.get('style', ''),
-        artwork.get('tags', ''),
-        artwork.get('classification', '')
-    ])).lower()
-    
-    # Remove any mentions of the artist name from the artwork text
-    if artist_name:
-        # Split artist name into parts and remove each part
-        artist_parts = artist_name.split()
-        for part in artist_parts:
-            if len(part) > 2:  # Only remove parts longer than 2 characters
-                artwork_text = artwork_text.replace(part, '')
-    
-    # Check if theme refers to a historical period
-    time_period = get_time_period(theme_info['original'])
-    if time_period['is_historical_period']:
-        artwork_year = extract_year_from_date(artwork.get('date', ''))
+    try:
+        score = 0.0
         
-        # Check temporal relevance
-        if artwork_year:
-            # Direct match for works created during the period
-            if time_period['start'] <= artwork_year <= time_period['end']:
-                score += 5.0
-            # Smaller boost for works created within 10 years after the period
-            elif time_period['end'] < artwork_year <= time_period['end'] + 10:
-                score += 2.0
-            # Even smaller boost for works created within 20 years after
-            elif time_period['end'] + 10 < artwork_year <= time_period['end'] + 20:
-                score += 1.0
-        
-        # Check for period-specific keywords
-        for keyword in time_period.get('keywords', []):
-            if keyword in artwork_text:
-                score += 2.0
-    
-    if theme_info['use_spacy']:
-        try:
-            import spacy
-            nlp = spacy.load('en_core_web_lg')
-            artwork_doc = nlp(artwork_text)
+        # Check for None values
+        if not artwork or not theme_info:
+            return score
             
-            # Vector similarity if both have vectors
-            if theme_info['doc'].has_vector and artwork_doc.has_vector:
-                similarity = theme_info['doc'].similarity(artwork_doc)
-                score += similarity * 2.0
+        # Extract artwork text fields
+        artwork_text = ' '.join(filter(None, [
+            artwork.get('title', ''),
+            artwork.get('description', ''),
+            artwork.get('culture', ''),
+            artwork.get('period', ''),
+            artwork.get('classification', ''),
+            artwork.get('tags', '')
+        ])).lower()
+        
+        # Get theme keywords
+        theme_keywords = theme_info.get('keywords', [])
+        if not theme_keywords:
+            return score
+            
+        # Calculate base score from keyword matches
+        for keyword in theme_keywords:
+            if keyword.lower() in artwork_text:
+                score += 1.0
                 
-                # Boost score if the exact theme phrase appears
-                if theme_info['theme_phrase'] in artwork_text:
-                    score += 1.0
-        except:
-            # If spaCy fails, fall back to basic matching
-            pass
-    
-    # Basic text matching (always performed as backup)
-    # Check for exact theme phrase match
-    if theme_info['theme_phrase'] in artwork_text:
-        score += 3.0
-    
-    # Check for entity matches (excluding PERSON entities)
-    for entity in theme_info['entities']:
-        if entity.lower() in artwork_text:
-            score += 1.0
-    
-    # Analyze temporal relevance for non-historical themes
-    if not time_period['is_historical_period'] and is_contemporary(artwork.get('date', '')):
-        score += 0.3
-    
-    # Add small randomization factor to prevent same-score clustering
-    import random
-    score += random.uniform(0, 0.1)
-    
-    # Normalize score to 0-1 range
-    return min(score / 10.0, 1.0)
+        return score
+        
+    except Exception as e:
+        print(f"Error calculating relevance score: {str(e)}")
+        return 0.0
 
 def get_artwork_context(artwork: Dict[str, Any], theme_info: Dict[str, Any]) -> str:
     """
@@ -426,25 +380,35 @@ def get_artwork_context(artwork: Dict[str, Any], theme_info: Dict[str, Any]) -> 
 def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
     """Search the Metropolitan Museum of Art's collection."""
     try:
+        print("Starting Met Museum API search...")
         theme_info = preprocess_theme(theme)
+        print(f"Theme preprocessed: {theme_info}")
         
         # First, search for objects
         search_url = f"https://collectionapi.metmuseum.org/public/collection/v1/search?q={theme}"
+        print(f"Making initial search request to: {search_url}")
         response = requests.get(search_url)
+        print(f"Search response status: {response.status_code}")
         if not response.ok:
+            print(f"Search request failed with status: {response.status_code}")
             return []
             
         data = response.json()
         if not data.get('objectIDs'):
+            print("No object IDs found in response")
             return []
             
+        print(f"Found {len(data['objectIDs'])} objects")
+        
         # Get details for each object
         artworks = []
         # Limit to first 20 results for performance
         for object_id in data['objectIDs'][:20]:
             details_url = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{object_id}"
+            print(f"Fetching details for object {object_id}")
             details_response = requests.get(details_url)
             if not details_response.ok:
+                print(f"Failed to get details for object {object_id}")
                 continue
                 
             artwork = details_response.json()
@@ -486,6 +450,10 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
         
     except Exception as e:
         print(f"Met Museum API error: {str(e)}")
+        import traceback
+        print(f"Full error: {traceback.format_exc()}")
+        import sys
+        print(f"Python version: {sys.version}")
         return []
 
 def search_aic_artwork(theme: str) -> List[Dict[str, Any]]:
@@ -1575,7 +1543,7 @@ Bootstrap(app)
 CORS(app)  # Enable CORS for all routes
 
 # Get port from environment variable (for deployment)
-port = int(os.environ.get('PORT', 8080))
+port = int(os.environ.get('PORT', 5000))
 
 @app.route('/')
 def home():
@@ -1655,10 +1623,21 @@ def search():
             score = artwork.get('relevance_score', 0)
             
             # Boost score for works from the historical period
-            if time_period['is_historical_period']:
+            if time_period and time_period.get('is_historical_period'):
                 artwork_year = extract_year_from_date(artwork.get('date', ''))
-                if artwork_year and time_period['start'] <= artwork_year <= time_period['end']:
-                    score *= 2.0
+                period_start = time_period.get('start')
+                period_end = time_period.get('end')
+                
+                if artwork_year is not None and period_start is not None and period_end is not None:
+                    # Direct match for works created during the period
+                    if period_start <= artwork_year <= period_end:
+                        score *= 2.0
+                    # Smaller boost for works created within 10 years after the period
+                    elif period_end < artwork_year <= period_end + 10:
+                        score += 2.0
+                    # Even smaller boost for works created within 20 years after
+                    elif period_end + 10 < artwork_year <= period_end + 20:
+                        score += 1.0
             
             return score
         
@@ -1682,4 +1661,5 @@ def search():
         return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
