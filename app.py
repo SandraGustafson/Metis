@@ -137,7 +137,7 @@ def preprocess_theme(theme: str) -> Dict[str, Any]:
         import spacy
         # Try to use spaCy if available
         try:
-            nlp = spacy.load('en_core_web_lg')
+            nlp = spacy.load('en_core_web_sm')
             # Process with spaCy
             doc = nlp(theme.lower())
             
@@ -347,7 +347,7 @@ def get_artwork_context(artwork: Dict[str, Any], theme_info: Dict[str, Any]) -> 
     if theme_info['use_spacy']:
         try:
             import spacy
-            nlp = spacy.load('en_core_web_lg')
+            nlp = spacy.load('en_core_web_sm')
             artwork_doc = nlp(artwork_text)
             theme_doc = theme_info['doc']
             
@@ -1526,24 +1526,28 @@ from flask import Flask, render_template, request, jsonify
 from flask_bootstrap import Bootstrap
 from flask_cors import CORS
 import os
-import spacy
 
-# Initialize spaCy - make it a global variable
+# Load English tokenizer, tagger, parser and NER
 try:
-    nlp = spacy.load('en_core_web_lg')
+    nlp = spacy.load("en_core_web_sm")
 except OSError:
-    # If model is not found, download it
-    os.system('python -m spacy download en_core_web_lg')
-    nlp = spacy.load('en_core_web_lg')
+    # Fallback if model isn't installed
+    print("Downloading spaCy model...")
+    os.system("python -m spacy download en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
+except Exception as e:
+    print(f"Error loading spaCy model: {e}")
+    # Provide basic fallback functionality without NLP
+    from spacy.tokens import Doc
+    Doc.set_extension("has_theme", default=False, force=True)
+    class DummyNLP:
+        def __call__(self, text):
+            return Doc(Vocab(), words=text.split())
+    nlp = DummyNLP()
 
-app = Flask(__name__, 
-    static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
-    static_url_path='/static')
+app = Flask(__name__)
 Bootstrap(app)
-CORS(app)  # Enable CORS for all routes
-
-# Get port from environment variable (for deployment)
-port = int(os.environ.get('PORT', 10000))
+CORS(app)
 
 @app.route('/')
 def home():
@@ -1551,114 +1555,26 @@ def home():
 
 @app.route('/search', methods=['POST'])
 def search():
+    theme = request.json.get('theme', '')
+    if not theme:
+        return jsonify({'error': 'No theme provided'}), 400
+
+    # Simple keyword matching for now
+    results = []
     try:
-        # Try to get theme from JSON data first
-        if request.is_json:
-            data = request.get_json()
-            theme = data.get('theme', '').strip() if data else ''
-        else:
-            # Fall back to form data
-            theme = request.form.get('theme', '').strip()
+        # Met API search
+        met_results = search_met_artwork(theme)
+        results.extend(met_results)
         
-        if not theme:
-            return jsonify({'error': 'Theme cannot be empty'}), 400
+        # Harvard API search
+        harvard_results = search_harvard_artwork(theme)
+        results.extend(harvard_results)
         
-        # Track API errors
-        api_errors = []
-        all_results = []
-        
-        # Define all search functions to use
-        search_functions = [
-            ('Met Museum', search_met_artwork),
-            ('Art Institute of Chicago', search_aic_artwork),
-            ('Harvard Art Museums', search_harvard_artwork),
-            ('Yale University Art Gallery', search_yale_artwork),
-            ('Rijksmuseum', search_rijksmuseum_artwork),
-            ('Smithsonian', search_smithsonian_artwork),
-            ('Victoria and Albert Museum', search_victoria_albert_artwork),
-            ('MoMA', search_moma_artwork),
-            ('Tate', search_tate_artwork),
-            ('Centre Pompidou', search_pompidou_artwork),
-            ('Guggenheim', search_guggenheim_artwork),
-            ('Whitney Museum', search_whitney_artwork),
-            ('LACMA', search_lacma_artwork),
-            ('Stanford Museums', search_stanford_artwork),
-            ('Princeton Art Museum', search_princeton_artwork),
-            ('Oxford Museums', search_oxford_artwork),
-            ('Google Arts & Culture', search_google_arts_culture),
-            ('Europeana', search_europeana),
-            ('Digital Public Library of America', search_dpla)
-        ]
-        
-        # Use ThreadPoolExecutor for parallel API requests
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_api = {
-                executor.submit(search_func, theme): api_name 
-                for api_name, search_func in search_functions
-            }
-            
-            for future in future_to_api:
-                api_name = future_to_api[future]
-                try:
-                    results = future.result(timeout=30)  # 30 second timeout per API
-                    if results:
-                        all_results.extend(results)
-                except Exception as e:
-                    api_errors.append(f"{api_name} API error: {str(e)}")
-        
-        if not all_results:
-            message = "No artworks found matching your theme."
-            if api_errors:
-                message += " Some APIs encountered errors."
-            return jsonify({
-                'error': message,
-                'api_errors': api_errors
-            }), 404
-        
-        # Sort results by relevance score, prioritizing works from the historical period
-        theme_info = preprocess_theme(theme)
-        time_period = get_time_period(theme)
-        
-        def sort_key(artwork):
-            score = artwork.get('relevance_score', 0)
-            
-            # Boost score for works from the historical period
-            if time_period and time_period.get('is_historical_period'):
-                artwork_year = extract_year_from_date(artwork.get('date', ''))
-                period_start = time_period.get('start')
-                period_end = time_period.get('end')
-                
-                if artwork_year is not None and period_start is not None and period_end is not None:
-                    # Direct match for works created during the period
-                    if period_start <= artwork_year <= period_end:
-                        score *= 2.0
-                    # Smaller boost for works created within 10 years after the period
-                    elif period_end < artwork_year <= period_end + 10:
-                        score += 2.0
-                    # Even smaller boost for works created within 20 years after
-                    elif period_end + 10 < artwork_year <= period_end + 20:
-                        score += 1.0
-            
-            return score
-        
-        all_results.sort(key=sort_key, reverse=True)
-        
-        # Limit to top 20 results (increased from 10 since we have more sources)
-        all_results = all_results[:20]
-        
-        response = {
-            'results': all_results,
-            'total_sources': len(search_functions),
-            'successful_sources': len(search_functions) - len(api_errors)
-        }
-        
-        if api_errors:
-            response['api_errors'] = api_errors
-        
-        return jsonify(response)
-    
     except Exception as e:
-        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
+        print(f"Error during search: {e}")
+        return jsonify({'error': 'Search failed'}), 500
+
+    return jsonify(results)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))

@@ -1,14 +1,15 @@
 #!/bin/bash
 
-# Activate Python virtual environment
-source $VIRTUAL_ENV/bin/activate
+# Ensure environment variables are set
+export PORT=${PORT:-10000}
 
-# Add virtual environment to PATH
-export PATH="$VIRTUAL_ENV/bin:$PATH"
-export PYTHONPATH="${PYTHONPATH}:${PWD}"
-
-# Verify gunicorn installation
-which gunicorn || pip install gunicorn
-
-# Start gunicorn with debug logging
-exec gunicorn app:app --bind 0.0.0.0:$PORT --log-level debug
+# Start gunicorn with memory-optimized settings
+exec gunicorn app:app \
+    --bind 0.0.0.0:$PORT \
+    --workers 1 \
+    --threads 2 \
+    --timeout 120 \
+    --log-level info \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --preload
