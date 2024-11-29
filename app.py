@@ -1557,6 +1557,17 @@ def home():
 def search():
     """Search endpoint that processes theme-based artwork queries."""
     try:
+        # Log content type for debugging
+        app.logger.debug('Content-Type: %s', request.content_type)
+        app.logger.debug('Headers: %s', dict(request.headers))
+        
+        # Explicitly check if the request is JSON
+        if not request.is_json:
+            return jsonify({
+                'error': 'Content-Type must be application/json',
+                'received': request.content_type
+            }), 415
+
         data = request.get_json()
         if not data or 'theme' not in data:
             return jsonify({'error': 'Missing theme parameter'}), 400
