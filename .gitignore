@@ -16,17 +16,15 @@ lib64/
 parts/
 sdist/
 var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
 # Virtual Environment
+.env
+.venv
 venv/
 ENV/
-
-# Environment Variables
-.env
 
 # IDE
 .idea/
@@ -36,9 +34,4 @@ ENV/
 
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db

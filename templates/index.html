@@ -85,14 +85,12 @@
     </div>
 
     <div class="search-container">
-        <form id="searchForm" onsubmit="searchArtwork(event)">
-            <div class="form-group">
-                <label for="theme">What theme or topic are you teaching?</label>
-                <input type="text" class="form-control" id="theme" name="theme" 
-                       placeholder="Enter a theme (e.g., democracy, industrial revolution, nature)" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Find Relevant Artwork</button>
-        </form>
+        <div class="form-group">
+            <label for="theme">What theme or topic are you teaching?</label>
+            <input type="text" class="form-control" id="theme" 
+                   placeholder="Enter a theme (e.g., democracy, industrial revolution, nature)" required>
+            <button onclick="searchArtwork()" class="btn btn-primary btn-block mt-3">Find Relevant Artwork</button>
+        </div>
     </div>
 
     <div class="loading" id="loading">
@@ -110,10 +108,10 @@
 {% block scripts %}
 {{super()}}
 <script>
-function searchArtwork(event) {
-    event.preventDefault();
-    
+async function searchArtwork() {
     const theme = document.getElementById('theme').value;
+    if (!theme) return;
+
     const loading = document.getElementById('loading');
     const results = document.getElementById('results');
     const errorContainer = document.getElementById('error-container');
@@ -122,31 +120,20 @@ function searchArtwork(event) {
     results.innerHTML = '';
     errorContainer.innerHTML = '';
     
-    const formData = new FormData();
-    formData.append('theme', theme);
-    
-    fetch('/search', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(data => {
-                throw new Error(data.error || 'An error occurred while searching');
-            });
-        }
-        return response.json();
-    })
-    .then(data => {
-        loading.style.display = 'none';
+    try {
+        const response = await fetch('/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: theme })
+        });
+
+        const data = await response.json();
         
-        // Display API errors if any
-        if (data.api_errors && data.api_errors.length > 0) {
-            const errorHTML = data.api_errors.map(error => 
-                `<div class="error-message">${error}</div>`
-            ).join('');
-            errorContainer.innerHTML = errorHTML;
+        if (!response.ok) {
+            throw new Error(data.error || `Error: ${response.status}`);
         }
+
+        loading.style.display = 'none';
         
         if (!data.results || data.results.length === 0) {
             results.innerHTML = `<div class="alert alert-info">No artwork found for this theme. Try a different search term.</div>`;
@@ -155,9 +142,14 @@ function searchArtwork(event) {
         
         const artworksHTML = data.results.map(artwork => `
             <div class="artwork-card">
-                <img src="${artwork.image_url}" alt="${artwork.title}" class="artwork-image">
+                ${artwork.image_url ? `
+                    <img src="${artwork.image_url}" 
+                         alt="${artwork.title || 'Artwork'}" 
+                         class="artwork-image" 
+                         onerror="this.style.display='none'">
+                ` : ''}
                 <div class="artwork-info">
-                    <h3>${artwork.title}</h3>
+                    <h3>${artwork.title || 'Untitled'}</h3>
                     ${artwork.artist ? `<p><strong>Artist:</strong> ${artwork.artist}</p>` : ''}
                     ${artwork.date ? `<p><strong>Date:</strong> ${artwork.date}</p>` : ''}
                     ${artwork.medium ? `<p><strong>Medium:</strong> ${artwork.medium}</p>` : ''}
@@ -179,19 +171,18 @@ function searchArtwork(event) {
                     ` : ''}
                     <p class="source-tag">
                         Source: ${artwork.source}
-                        ${artwork.source_url ? `<br><a href="${artwork.source_url}" target="_blank">View more details</a>` : ''}
+                        ${artwork.source_url ? `<a href="${artwork.source_url}" target="_blank">View more details</a>` : ''}
                     </p>
                 </div>
             </div>
         `).join('');
         
         results.innerHTML = artworksHTML;
-    })
-    .catch(error => {
+    } catch (error) {
         loading.style.display = 'none';
         errorContainer.innerHTML = `<div class="error-message">${error.message}</div>`;
         console.error('Error:', error);
-    });
+    }
 }
 </script>
 {% endblock %}

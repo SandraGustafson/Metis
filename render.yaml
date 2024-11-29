@@ -2,23 +2,12 @@ services:
   - type: web
     name: metis
     env: python
-    region: oregon
-    plan: free
-    pythonVersion: 3.11.10
-    buildCommand: |
-      python -m venv .venv
-      . .venv/bin/activate
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install gunicorn
-      python -m spacy download en_core_web_sm
-    startCommand: |
-      . .venv/bin/activate
-      gunicorn --bind 0.0.0.0:$PORT app:app --log-level debug
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --config gunicorn.conf.py app:app
     envVars:
-      - key: PYTHONUNBUFFERED
-        value: true
+      - key: FLASK_ENV
+        value: production
       - key: PYTHON_VERSION
-        value: 3.11.10
-      - key: PORT
-        value: 10000
+        value: 3.9.0
+      - key: GUNICORN_CMD_ARGS
+        value: "--log-level debug --timeout 120"
