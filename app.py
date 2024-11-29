@@ -1535,6 +1535,13 @@ def search_dpla(theme: str) -> List[Dict[str, Any]]:
         return []
 
 app = Flask(__name__)
+CORS(app, resources={
+    r"/search": {
+        "origins": "*",
+        "methods": ["POST"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 Bootstrap(app)
 
 # Debug middleware
@@ -1542,10 +1549,18 @@ Bootstrap(app)
 def log_request_info():
     app.logger.debug('Headers: %s', dict(request.headers))
     app.logger.debug('Body: %s', request.get_data())
+    app.logger.debug('Content-Type: %s', request.content_type)
+    app.logger.debug('Is JSON?: %s', request.is_json)
+    app.logger.debug('Values: %s', request.values)
+    app.logger.debug('Form: %s', request.form)
 
 @app.after_request
 def after_request(response):
-    app.logger.debug('Response: %s', response.get_data())
+    app.logger.debug('Response Headers: %s', dict(response.headers))
+    app.logger.debug('Response Data: %s', response.get_data())
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'POST')
     return response
 
 @app.route('/')

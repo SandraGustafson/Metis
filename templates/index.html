@@ -123,16 +123,26 @@ async function searchArtwork() {
     try {
         const response = await fetch('/search', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({ theme: theme })
         });
 
-        const data = await response.json();
-        
         if (!response.ok) {
-            throw new Error(data.error || `Error: ${response.status}`);
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                const data = await response.json();
+                throw new Error(data.error || `Error: ${response.status}`);
+            } else {
+                throw new Error(`Server error: ${response.status}`);
+            }
         }
 
+        const data = await response.json();
         loading.style.display = 'none';
         
         if (!data.results || data.results.length === 0) {
