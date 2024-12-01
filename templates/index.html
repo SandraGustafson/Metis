@@ -85,11 +85,17 @@
     </div>
 
     <div class="search-container">
-        <div class="form-group">
-            <label for="theme">What theme or topic are you teaching?</label>
-            <input type="text" class="form-control" id="theme" 
-                   placeholder="Enter a theme (e.g., democracy, industrial revolution, nature)" required>
-            <button onclick="searchArtwork()" class="btn btn-primary btn-block mt-3">Find Relevant Artwork</button>
+        <div class="input-group">
+            <input type="text" 
+                   class="form-control" 
+                   id="theme" 
+                   placeholder="Enter a theme (e.g., democracy, industrial revolution, nature)"
+                   onkeypress="if(event.key === 'Enter') searchArtwork()">
+            <div class="input-group-append">
+                <button class="btn btn-primary" type="button" onclick="searchArtwork()">
+                    Find Relevant Artwork
+                </button>
+            </div>
         </div>
     </div>
 
@@ -109,7 +115,8 @@
 {{super()}}
 <script>
 async function searchArtwork() {
-    const theme = document.getElementById('theme').value;
+    const themeInput = document.getElementById('theme');
+    const theme = themeInput.value.trim();
     if (!theme) return;
 
     const loading = document.getElementById('loading');
@@ -123,26 +130,17 @@ async function searchArtwork() {
     try {
         const response = await fetch('/search', {
             method: 'POST',
-            mode: 'cors',
-            credentials: 'same-origin',
             headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ theme: theme })
+            body: JSON.stringify({ theme })
         });
 
+        const data = await response.json();
         if (!response.ok) {
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.indexOf("application/json") !== -1) {
-                const data = await response.json();
-                throw new Error(data.error || `Error: ${response.status}`);
-            } else {
-                throw new Error(`Server error: ${response.status}`);
-            }
+            throw new Error(data.error || `Error: ${response.status}`);
         }
 
-        const data = await response.json();
         loading.style.display = 'none';
         
         if (!data.results || data.results.length === 0) {

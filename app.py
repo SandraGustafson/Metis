@@ -1535,33 +1535,7 @@ def search_dpla(theme: str) -> List[Dict[str, Any]]:
         return []
 
 app = Flask(__name__)
-CORS(app, resources={
-    r"/search": {
-        "origins": "*",
-        "methods": ["POST"],
-        "allow_headers": ["Content-Type"]
-    }
-})
 Bootstrap(app)
-
-# Debug middleware
-@app.before_request
-def log_request_info():
-    app.logger.debug('Headers: %s', dict(request.headers))
-    app.logger.debug('Body: %s', request.get_data())
-    app.logger.debug('Content-Type: %s', request.content_type)
-    app.logger.debug('Is JSON?: %s', request.is_json)
-    app.logger.debug('Values: %s', request.values)
-    app.logger.debug('Form: %s', request.form)
-
-@app.after_request
-def after_request(response):
-    app.logger.debug('Response Headers: %s', dict(response.headers))
-    app.logger.debug('Response Data: %s', response.get_data())
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Allow-Methods', 'POST')
-    return response
 
 @app.route('/')
 def home():
@@ -1571,56 +1545,43 @@ def home():
 @app.route('/search', methods=['POST'])
 def search():
     """Search endpoint that processes theme-based artwork queries."""
+    if not request.is_json:
+        return jsonify({'error': 'Content-Type must be application/json'}), 415
+
+    data = request.get_json()
+    if not data or 'theme' not in data:
+        return jsonify({'error': 'Missing theme parameter'}), 400
+
+    theme = data['theme'].strip()
+    if not theme:
+        return jsonify({'error': 'Theme cannot be empty'}), 400
+
+    results = []
+    
+    # Met API search
     try:
-        # Log content type for debugging
-        app.logger.debug('Content-Type: %s', request.content_type)
-        app.logger.debug('Headers: %s', dict(request.headers))
-        
-        # Explicitly check if the request is JSON
-        if not request.is_json:
-            return jsonify({
-                'error': 'Content-Type must be application/json',
-                'received': request.content_type
-            }), 415
-
-        data = request.get_json()
-        if not data or 'theme' not in data:
-            return jsonify({'error': 'Missing theme parameter'}), 400
-
-        theme = data['theme'].strip()
-        if not theme:
-            return jsonify({'error': 'Theme cannot be empty'}), 400
-
-        results = []
-        
-        # Met API search
-        try:
-            met_results = search_met_artwork(theme)
-            if met_results:
-                results.extend(met_results)
-        except Exception as e:
-            app.logger.error(f"Met API error: {str(e)}")
-        
-        # If no results, add a test result
-        if not results:
-            results.append({
-                'title': 'Sample Artwork',
-                'artist': 'Sample Artist',
-                'date': '2000',
-                'medium': 'Oil on canvas',
-                'image_url': 'https://via.placeholder.com/400',
-                'source': 'Test Data',
-                'description': 'This is a sample artwork entry.'
-            })
-        
-        return jsonify({
-            'results': results,
-            'total': len(results)
-        })
-        
+        met_results = search_met_artwork(theme)
+        if met_results:
+            results.extend(met_results)
     except Exception as e:
-        app.logger.error(f"Search error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"Met API error: {str(e)}")
+    
+    # If no results, add a test result
+    if not results:
+        results.append({
+            'title': 'Sample Artwork',
+            'artist': 'Sample Artist',
+            'date': '2000',
+            'medium': 'Oil on canvas',
+            'image_url': 'https://via.placeholder.com/400',
+            'source': 'Test Data',
+            'description': 'This is a sample artwork entry.'
+        })
+    
+    return jsonify({
+        'results': results,
+        'total': len(results)
+    })
 
 if __name__ == '__main__':
     # Configure logging
