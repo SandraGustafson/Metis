@@ -1545,10 +1545,31 @@ def home():
 @app.route('/search', methods=['POST'])
 def search():
     """Search endpoint that processes theme-based artwork queries."""
-    if not request.is_json:
-        return jsonify({'error': 'Content-Type must be application/json'}), 415
+    # Log incoming request details
+    app.logger.info('Request Headers: %s', dict(request.headers))
+    app.logger.info('Request Content-Type: %s', request.content_type)
+    app.logger.info('Request Data: %s', request.get_data(as_text=True))
 
-    data = request.get_json()
+    # Check content type
+    if not request.is_json:
+        error_msg = {
+            'error': 'Content-Type must be application/json',
+            'received_content_type': request.content_type,
+            'received_headers': dict(request.headers)
+        }
+        app.logger.error('Content-Type error: %s', error_msg)
+        return jsonify(error_msg), 415
+
+    try:
+        data = request.get_json()
+    except Exception as e:
+        error_msg = {
+            'error': 'Failed to parse JSON data',
+            'details': str(e)
+        }
+        app.logger.error('JSON parsing error: %s', error_msg)
+        return jsonify(error_msg), 400
+
     if not data or 'theme' not in data:
         return jsonify({'error': 'Missing theme parameter'}), 400
 
@@ -1578,10 +1599,15 @@ def search():
             'description': 'This is a sample artwork entry.'
         })
     
-    return jsonify({
+    response = jsonify({
         'results': results,
         'total': len(results)
     })
+    
+    # Ensure proper headers for Safari
+    response.headers['Content-Type'] = 'application/json'
+    response.headers['Cache-Control'] = 'no-cache'
+    return response
 
 if __name__ == '__main__':
     # Configure logging

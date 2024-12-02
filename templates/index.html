@@ -126,17 +126,33 @@ async function searchArtwork() {
     loading.style.display = 'block';
     results.innerHTML = '';
     errorContainer.innerHTML = '';
+
+    // Create the request data
+    const requestData = JSON.stringify({ theme: theme });
     
     try {
+        // Make the request with explicit headers for Safari
         const response = await fetch('/search', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ theme })
+            headers: new Headers({
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache'
+            }),
+            body: requestData,
+            cache: 'no-cache',
+            redirect: 'follow'
+        });
+
+        // Log request details for debugging
+        console.log('Request sent with:', {
+            method: 'POST',
+            contentType: 'application/json',
+            data: requestData
         });
 
         const data = await response.json();
+        
         if (!response.ok) {
             throw new Error(data.error || `Error: ${response.status}`);
         }
