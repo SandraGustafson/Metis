@@ -1547,31 +1547,35 @@ def search():
     """Search endpoint that processes theme-based artwork queries."""
     # Log incoming request details
     app.logger.info('Request Headers: %s', dict(request.headers))
-    app.logger.info('Request Content-Type: %s', request.content_type)
     app.logger.info('Request Data: %s', request.get_data(as_text=True))
 
     # Check content type
     if not request.is_json:
         error_msg = {
             'error': 'Content-Type must be application/json',
-            'received_content_type': request.content_type,
-            'received_headers': dict(request.headers)
+            'received': request.content_type
         }
-        app.logger.error('Content-Type error: %s', error_msg)
         return jsonify(error_msg), 415
 
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
+        app.logger.info('Parsed JSON data: %s', data)
     except Exception as e:
         error_msg = {
-            'error': 'Failed to parse JSON data',
+            'error': 'Invalid JSON data',
             'details': str(e)
         }
-        app.logger.error('JSON parsing error: %s', error_msg)
         return jsonify(error_msg), 400
 
-    if not data or 'theme' not in data:
+    # Validate theme parameter
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request body must be a JSON object'}), 400
+    
+    if 'theme' not in data:
         return jsonify({'error': 'Missing theme parameter'}), 400
+    
+    if not isinstance(data['theme'], str):
+        return jsonify({'error': 'Theme must be a string'}), 400
 
     theme = data['theme'].strip()
     if not theme:
@@ -1599,15 +1603,10 @@ def search():
             'description': 'This is a sample artwork entry.'
         })
     
-    response = jsonify({
+    return jsonify({
         'results': results,
         'total': len(results)
     })
-    
-    # Ensure proper headers for Safari
-    response.headers['Content-Type'] = 'application/json'
-    response.headers['Cache-Control'] = 'no-cache'
-    return response
 
 if __name__ == '__main__':
     # Configure logging
