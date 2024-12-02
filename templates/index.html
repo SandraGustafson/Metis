@@ -74,6 +74,10 @@
         margin-right: 5px;
         margin-bottom: 5px;
     }
+    .placeholder-image {
+        filter: grayscale(100%);
+        opacity: 0.5;
+    }
 </style>
 {% endblock %}
 
@@ -117,7 +121,10 @@
 async function searchArtwork() {
     const themeInput = document.getElementById('theme');
     const theme = themeInput.value.trim();
-    if (!theme) return;
+    if (!theme) {
+        showError('Please enter a theme to search for.');
+        return;
+    }
 
     const loading = document.getElementById('loading');
     const results = document.getElementById('results');
@@ -127,90 +134,113 @@ async function searchArtwork() {
     results.innerHTML = '';
     errorContainer.innerHTML = '';
 
-    // Create the request data
-    const requestData = {
-        theme: theme
-    };
-    
     try {
-        // Make the request with explicit headers for Safari
+        console.log('Searching for theme:', theme);
+        
         const response = await fetch('/search', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify({ theme })
         });
-
-        // Log request details for debugging
-        console.log('Request:', {
-            url: '/search',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: requestData
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Error: ${response.status}`);
-        }
 
         const data = await response.json();
+        console.log('Response data:', data);
+
         loading.style.display = 'none';
-        
+
+        if (!response.ok) {
+            throw new Error(data.error || `Server error: ${response.status}`);
+        }
+
         if (!data.results || data.results.length === 0) {
-            results.innerHTML = `<div class="alert alert-info">No artwork found for this theme. Try a different search term.</div>`;
+            results.innerHTML = `
+                <div class="alert alert-info">
+                    No artwork found for "${theme}". Try a different search term or check your spelling.
+                </div>`;
             return;
         }
-        
+
         const artworksHTML = data.results.map(artwork => `
             <div class="artwork-card">
                 ${artwork.image_url ? `
                     <img src="${artwork.image_url}" 
-                         alt="${artwork.title || 'Artwork'}" 
-                         class="artwork-image" 
-                         onerror="this.style.display='none'">
-                ` : ''}
+                         alt="${escapeHtml(artwork.title) || 'Artwork'}" 
+                         class="artwork-image"
+                         onerror="this.onerror=null; this.src='https://via.placeholder.com/400x400?text=Image+Not+Available'; this.classList.add('placeholder-image');">
+                ` : `
+                    <div class="image-error" style="text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
+                        <i>Image not available</i>
+                    </div>
+                `}
                 <div class="artwork-info">
-                    <h3>${artwork.title || 'Untitled'}</h3>
-                    ${artwork.artist ? `<p><strong>Artist:</strong> ${artwork.artist}</p>` : ''}
-                    ${artwork.artist_nationality ? `<p><strong>Artist Nationality:</strong> ${artwork.artist_nationality}</p>` : ''}
-                    ${artwork.date ? `<p><strong>Date:</strong> ${artwork.date}</p>` : ''}
-                    ${artwork.period ? `<p><strong>Period:</strong> ${artwork.period}</p>` : ''}
-                    ${artwork.culture ? `<p><strong>Culture:</strong> ${artwork.culture}</p>` : ''}
-                    ${artwork.medium ? `<p><strong>Medium:</strong> ${artwork.medium}</p>` : ''}
-                    ${artwork.department ? `<p><strong>Department:</strong> ${artwork.department}</p>` : ''}
-                    ${artwork.classification ? `<p><strong>Classification:</strong> ${artwork.classification}</p>` : ''}
+                    <h3>${escapeHtml(artwork.title) || 'Untitled'}</h3>
+                    ${artwork.artist ? `<p><strong>Artist:</strong> ${escapeHtml(artwork.artist)}</p>` : ''}
+                    ${artwork.artist_nationality ? `<p><strong>Artist Nationality:</strong> ${escapeHtml(artwork.artist_nationality)}</p>` : ''}
+                    ${artwork.date ? `<p><strong>Date:</strong> ${escapeHtml(artwork.date)}</p>` : ''}
+                    ${artwork.period ? `<p><strong>Period:</strong> ${escapeHtml(artwork.period)}</p>` : ''}
+                    ${artwork.culture ? `<p><strong>Culture:</strong> ${escapeHtml(artwork.culture)}</p>` : ''}
+                    ${artwork.medium ? `<p><strong>Medium:</strong> ${escapeHtml(artwork.medium)}</p>` : ''}
+                    ${artwork.department ? `<p><strong>Department:</strong> ${escapeHtml(artwork.department)}</p>` : ''}
+                    ${artwork.classification ? `<p><strong>Classification:</strong> ${escapeHtml(artwork.classification)}</p>` : ''}
                     ${artwork.description ? `
                         <div class="description">
                             ${artwork.description.split('\n').map(paragraph => 
-                                paragraph ? `<p>${paragraph}</p>` : ''
+                                paragraph ? `<p>${escapeHtml(paragraph)}</p>` : ''
                             ).join('')}
                         </div>
                     ` : ''}
                     ${artwork.tags ? `
                         <div class="tags">
                             ${artwork.tags.split(',').map(tag => 
-                                tag.trim() ? `<span class="badge badge-secondary mr-1">${tag.trim()}</span>` : ''
+                                tag.trim() ? `<span class="badge badge-secondary mr-1">${escapeHtml(tag.trim())}</span>` : ''
                             ).join('')}
                         </div>
                     ` : ''}
                     <p class="source-tag mt-2">
-                        Source: ${artwork.source}
-                        ${artwork.source_url ? `<a href="${artwork.source_url}" target="_blank" class="ml-2">View at Museum</a>` : ''}
+                        Source: ${escapeHtml(artwork.source)}
+                        ${artwork.source_url ? `
+                            <a href="${artwork.source_url}" 
+                               target="_blank" 
+                               rel="noopener noreferrer">
+                                (View Details)
+                            </a>
+                        ` : ''}
                     </p>
                 </div>
             </div>
         `).join('');
-        
-        results.innerHTML = artworksHTML;
+
+        results.innerHTML = `
+            <h2 class="mb-4">Found ${data.total} artwork${data.total !== 1 ? 's' : ''} for "${theme}"</h2>
+            ${artworksHTML}
+        `;
     } catch (error) {
+        console.error('Search error:', error);
         loading.style.display = 'none';
-        errorContainer.innerHTML = `<div class="error-message">${error.message}</div>`;
-        console.error('Error:', error);
+        showError(error.message || 'An error occurred while searching for artwork.');
     }
+}
+
+function showError(message) {
+    const errorContainer = document.getElementById('error-container');
+    errorContainer.innerHTML = `
+        <div class="alert alert-danger">
+            ${escapeHtml(message)}
+        </div>
+    `;
+}
+
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 </script>
 {% endblock %}
