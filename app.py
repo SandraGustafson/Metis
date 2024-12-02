@@ -382,90 +382,118 @@ def get_artwork_context(artwork: Dict[str, Any], theme_info: Dict[str, Any]) -> 
     return "\n".join(context_points)
 
 def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
-    """Search the Metropolitan Museum of Art's collection."""
+    """
+    Search the Metropolitan Museum API for artwork matching the theme.
+    Ensures diverse representation across time periods, cultures, and artists.
+    """
+    base_url = "https://collectionapi.metmuseum.org/public/collection/v1/search"
+    object_url = "https://collectionapi.metmuseum.org/public/collection/v1/objects"
+    
     try:
-        logger.info("Starting Met Museum API search...")
-        theme_info = preprocess_theme(theme)
-        logger.info(f"Theme preprocessed: {theme_info}")
-        
-        # First, search for objects
-        search_url = f"https://collectionapi.metmuseum.org/public/collection/v1/search?q={theme}"
-        logger.info(f"Making initial search request to: {search_url}")
-        
-        try:
-            response = requests.get(search_url, timeout=10)
-            response.raise_for_status()  # Raise an error for bad status codes
-            logger.info(f"Search response status: {response.status_code}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Search request failed: {str(e)}")
+        # Initial search with the theme
+        response = requests.get(f"{base_url}?q={theme}&hasImages=true")
+        if not response.ok:
             return []
-            
+        
         data = response.json()
         if not data.get('objectIDs'):
-            logger.info("No object IDs found in response")
             return []
             
-        logger.info(f"Found {len(data['objectIDs'])} objects")
+        # Get all unique departments to ensure cultural diversity
+        departments_response = requests.get("https://collectionapi.metmuseum.org/public/collection/v1/departments")
+        departments = departments_response.json().get('departments', [])
+        dept_ids = [dept['departmentId'] for dept in departments]
         
-        # Get details for each object
-        artworks = []
-        # Limit to first 20 results for performance
-        for object_id in data['objectIDs'][:20]:
-            try:
-                details_url = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{object_id}"
-                logger.info(f"Fetching details for object {object_id}")
-                details_response = requests.get(details_url, timeout=10)
-                details_response.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to get details for object {object_id}: {str(e)}")
-                continue
+        # Initialize collections for diverse results
+        results = []
+        seen_cultures = set()
+        seen_periods = set()
+        seen_artists = set()
+        
+        # Shuffle object IDs to randomize selection
+        object_ids = data['objectIDs']
+        random.shuffle(object_ids)
+        
+        # Process objects until we have a diverse set or reach the limit
+        for obj_id in object_ids[:50]:  # Check up to 50 objects
+            if len(results) >= 20:  # Cap at 20 results
+                break
                 
-            artwork = details_response.json()
-            
-            # Create standardized artwork object
-            processed_artwork = {
-                'title': artwork.get('title', 'Untitled'),
-                'artist': artwork.get('artistDisplayName', 'Unknown Artist'),
-                'date': artwork.get('objectDate', 'Unknown Date'),
-                'medium': artwork.get('medium', 'Unknown Medium'),
-                'description': artwork.get('objectDescription', ''),
-                'culture': artwork.get('culture', ''),
-                'period': artwork.get('period', ''),
-                'image_url': artwork.get('primaryImageSmall') or artwork.get('primaryImage'),
-                'source_url': artwork.get('objectURL'),
-                'source': 'Metropolitan Museum of Art',
-                'department': artwork.get('department', ''),
-                'classification': artwork.get('classification', ''),
-                'tags': ', '.join(filter(None, [
-                    artwork.get('culture'),
-                    artwork.get('period'),
-                    artwork.get('classification')
-                ]))
-            }
-            
-            # Only add artwork if it has a valid image
-            if has_valid_image(processed_artwork):
-                artworks.append(processed_artwork)
-                logger.info(f"Added artwork: {processed_artwork['title']}")
-            else:
-                logger.info(f"Skipped artwork due to missing image: {processed_artwork['title']}")
+            try:
+                obj_response = requests.get(f"{object_url}/{obj_id}")
+                if not obj_response.ok:
+                    continue
+                    
+                obj = obj_response.json()
+                
+                # Skip if no image
+                if not obj.get('primaryImage'):
+                    continue
+                    
+                # Check if this object adds diversity to our results
+                culture = obj.get('culture', 'Unknown')
+                period = obj.get('period', 'Unknown')
+                artist = obj.get('artistDisplayName', 'Unknown')
+                
+                # Score this artwork based on how much diversity it adds
+                diversity_score = 0
+                if culture not in seen_cultures:
+                    diversity_score += 2
+                if period not in seen_periods:
+                    diversity_score += 2
+                if artist not in seen_artists:
+                    diversity_score += 1
+                    
+                # Additional score for underrepresented artists
+                artist_gender = obj.get('artistGender', '').lower()
+                if artist_gender == 'female':
+                    diversity_score += 2
+                
+                # If the artwork adds significant diversity or we have few results, include it
+                if diversity_score > 0 or len(results) < 5:
+                    artwork = {
+                        'title': obj.get('title', 'Untitled'),
+                        'artist': artist,
+                        'date': obj.get('objectDate', 'Unknown'),
+                        'medium': obj.get('medium', 'Unknown'),
+                        'culture': culture,
+                        'period': period,
+                        'image_url': obj.get('primaryImage'),
+                        'source': 'The Metropolitan Museum of Art',
+                        'source_url': obj.get('objectURL'),
+                        'description': obj.get('description', ''),
+                        'artist_gender': artist_gender,
+                        'artist_nationality': obj.get('artistNationality', 'Unknown'),
+                        'classification': obj.get('classification', 'Unknown'),
+                        'department': obj.get('department', 'Unknown'),
+                        'tags': ', '.join(filter(None, [
+                            culture, 
+                            period, 
+                            obj.get('classification'),
+                            obj.get('department')
+                        ]))
+                    }
+                    
+                    results.append(artwork)
+                    seen_cultures.add(culture)
+                    seen_periods.add(period)
+                    seen_artists.add(artist)
+                    
+            except Exception as e:
+                app.logger.error(f"Error processing Met object {obj_id}: {str(e)}")
+                continue
         
-        # Filter and score artworks
-        valid_artworks = filter_valid_artworks(artworks)
-        logger.info(f"Found {len(valid_artworks)} valid artworks")
-        
-        scored_artworks = [
-            {**artwork, 'score': calculate_relevance_score(artwork, theme_info)}
-            for artwork in valid_artworks
-        ]
-        
-        # Sort by score and return top results
-        results = sorted(scored_artworks, key=lambda x: x['score'], reverse=True)
-        logger.info(f"Returning {len(results)} scored and sorted artworks")
-        return results
-        
+        # Sort results by diversity score for presentation
+        return sorted(results, 
+                     key=lambda x: (
+                         x['culture'] != 'Unknown',
+                         x['period'] != 'Unknown',
+                         x['artist'] != 'Unknown'
+                     ), 
+                     reverse=True)
+                     
     except Exception as e:
-        logger.error(f"Met Museum API error: {str(e)}", exc_info=True)
+        app.logger.error(f"Error searching Met API: {str(e)}")
         return []
 
 def search_aic_artwork(theme: str) -> List[Dict[str, Any]]:

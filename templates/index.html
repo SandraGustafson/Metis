@@ -176,10 +176,13 @@ async function searchArtwork() {
                 <div class="artwork-info">
                     <h3>${artwork.title || 'Untitled'}</h3>
                     ${artwork.artist ? `<p><strong>Artist:</strong> ${artwork.artist}</p>` : ''}
+                    ${artwork.artist_nationality ? `<p><strong>Artist Nationality:</strong> ${artwork.artist_nationality}</p>` : ''}
                     ${artwork.date ? `<p><strong>Date:</strong> ${artwork.date}</p>` : ''}
-                    ${artwork.medium ? `<p><strong>Medium:</strong> ${artwork.medium}</p>` : ''}
-                    ${artwork.culture ? `<p><strong>Culture:</strong> ${artwork.culture}</p>` : ''}
                     ${artwork.period ? `<p><strong>Period:</strong> ${artwork.period}</p>` : ''}
+                    ${artwork.culture ? `<p><strong>Culture:</strong> ${artwork.culture}</p>` : ''}
+                    ${artwork.medium ? `<p><strong>Medium:</strong> ${artwork.medium}</p>` : ''}
+                    ${artwork.department ? `<p><strong>Department:</strong> ${artwork.department}</p>` : ''}
+                    ${artwork.classification ? `<p><strong>Classification:</strong> ${artwork.classification}</p>` : ''}
                     ${artwork.description ? `
                         <div class="description">
                             ${artwork.description.split('\n').map(paragraph => 
@@ -190,13 +193,13 @@ async function searchArtwork() {
                     ${artwork.tags ? `
                         <div class="tags">
                             ${artwork.tags.split(',').map(tag => 
-                                tag.trim() ? `<span>${tag.trim()}</span>` : ''
+                                tag.trim() ? `<span class="badge badge-secondary mr-1">${tag.trim()}</span>` : ''
                             ).join('')}
                         </div>
                     ` : ''}
-                    <p class="source-tag">
+                    <p class="source-tag mt-2">
                         Source: ${artwork.source}
-                        ${artwork.source_url ? `<a href="${artwork.source_url}" target="_blank">View more details</a>` : ''}
+                        ${artwork.source_url ? `<a href="${artwork.source_url}" target="_blank" class="ml-2">View at Museum</a>` : ''}
                     </p>
                 </div>
             </div>
