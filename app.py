@@ -16,6 +16,7 @@ load_dotenv()
 logger.info("Environment variables loaded")
 
 # Initialize Flask app
+# Version 1.0.1 - Clean deployment
 app = Flask(__name__)
 Bootstrap(app)
 
@@ -59,7 +60,13 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
     try:
         # Search for artworks
         search_url = f"{base_url}?q={theme}&hasImages=true"
-        response = requests.get(search_url)
+        logger.info(f"Searching Met API with URL: {search_url}")
+        response = requests.get(search_url, timeout=10)
+        
+        if response.status_code == 429:  # Rate limit exceeded
+            logger.error("Met API rate limit exceeded. Please try again later.")
+            return []
+            
         if not response.ok:
             logger.error(f"Met API search failed: {response.status_code}")
             return []
@@ -71,16 +78,29 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
             
         # Get details for up to 20 random artworks
         results = []
-        object_ids = data['objectIDs'][:100]  # Get first 100 IDs
-        random.shuffle(object_ids)  # Randomize them
+        object_ids = data['objectIDs']
+        logger.info(f"Found {len(object_ids)} total artworks for theme: {theme}")
+        
+        # Truly randomize the selection
+        if len(object_ids) > 100:
+            # Take a random sample of 100 IDs
+            object_ids = random.sample(object_ids, 100)
+        random.shuffle(object_ids)
         
         for obj_id in object_ids:
             if len(results) >= 20:  # Stop after getting 20 valid results
                 break
                 
             try:
-                obj_response = requests.get(f"{object_url}/{obj_id}")
+                logger.info(f"Fetching details for artwork ID: {obj_id}")
+                obj_response = requests.get(f"{object_url}/{obj_id}", timeout=10)
+                
+                if obj_response.status_code == 429:  # Rate limit exceeded
+                    logger.error("Met API rate limit exceeded while fetching artwork details")
+                    break
+                    
                 if not obj_response.ok:
+                    logger.warning(f"Failed to fetch artwork {obj_id}: {obj_response.status_code}")
                     continue
                     
                 obj = obj_response.json()
@@ -88,6 +108,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 # Skip if no primary image
                 primary_image = obj.get('primaryImage')
                 if not primary_image or not primary_image.startswith('http'):
+                    logger.debug(f"Skipping artwork {obj_id}: No valid primary image")
                     continue
                     
                 # Get basic metadata
@@ -114,7 +135,11 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 }
                 
                 results.append(artwork)
+                logger.info(f"Added artwork: {artwork['title']}")
                 
+            except requests.exceptions.Timeout:
+                logger.warning(f"Timeout while fetching artwork {obj_id}")
+                continue
             except Exception as e:
                 logger.error(f"Error processing Met object {obj_id}: {str(e)}")
                 continue
@@ -122,6 +147,9 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
         logger.info(f"Found {len(results)} valid results for theme: {theme}")
         return results
         
+    except requests.exceptions.Timeout:
+        logger.error("Timeout while searching Met API")
+        return []
     except Exception as e:
         logger.error(f"Error in Met API search: {str(e)}")
         return []
