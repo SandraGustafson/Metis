@@ -115,6 +115,28 @@ def expand_search_terms(theme: str) -> List[str]:
     
     return unique_terms
 
+def is_religious_artwork(obj: Dict[str, Any]) -> bool:
+    """Check if artwork is likely religious based on metadata."""
+    religious_keywords = {
+        'religious', 'sacred', 'divine', 'biblical', 'christian', 'christ',
+        'virgin', 'saint', 'madonna', 'jesus', 'angel', 'crucifixion',
+        'buddhist', 'hindu', 'islamic', 'deity', 'god', 'goddess', 'temple',
+        'church', 'mosque', 'shrine', 'altar', 'prayer', 'worship'
+    }
+    
+    # Check various metadata fields
+    text_to_check = ' '.join([
+        obj.get('title', '').lower(),
+        obj.get('culture', '').lower(),
+        obj.get('classification', '').lower(),
+        obj.get('department', '').lower(),
+        obj.get('period', '').lower(),
+        obj.get('objectName', '').lower(),
+        obj.get('description', '').lower()
+    ])
+    
+    return any(keyword in text_to_check for keyword in religious_keywords)
+
 def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
     """Search the Metropolitan Museum API for artwork matching the theme."""
     base_url = "https://collectionapi.metmuseum.org/public/collection/v1/search"
@@ -165,6 +187,9 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
         
         # Get details for up to 20 random artworks
         results = []
+        religious_count = 0  # Track number of religious artworks
+        MAX_RELIGIOUS = 2  # Maximum number of religious artworks to include
+        
         for obj_id in object_ids:
             if len(results) >= 20:  # Stop after getting 20 valid results
                 break
@@ -188,7 +213,13 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 if not primary_image or not primary_image.startswith('http'):
                     logger.debug(f"Skipping artwork {obj_id}: No valid primary image")
                     continue
-                    
+                
+                # Check if artwork is religious
+                is_religious = is_religious_artwork(obj)
+                if is_religious and religious_count >= MAX_RELIGIOUS:
+                    logger.debug(f"Skipping religious artwork {obj_id}: quota reached")
+                    continue
+                
                 # Get basic metadata
                 artist = obj.get('artistDisplayName', 'Unknown')
                 culture = obj.get('culture', 'Unknown')
@@ -209,11 +240,16 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                         culture if culture != 'Unknown' else None,
                         period if period != 'Unknown' else None,
                         obj.get('classification') if obj.get('classification') != 'Unknown' else None
-                    ]))
+                    ])),
+                    'is_religious': is_religious
                 }
                 
                 results.append(artwork)
                 logger.info(f"Added artwork: {artwork['title']}")
+                
+                if is_religious:
+                    religious_count += 1
+                    logger.debug(f"Added religious artwork ({religious_count}/{MAX_RELIGIOUS})")
                 
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout while fetching artwork {obj_id}")
@@ -222,7 +258,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 logger.error(f"Error processing Met object {obj_id}: {str(e)}")
                 continue
                 
-        logger.info(f"Found {len(results)} valid results for theme: {theme}")
+        logger.info(f"Found {len(results)} valid results (including {religious_count} religious works) for theme: {theme}")
         return results
         
     except requests.exceptions.Timeout:
