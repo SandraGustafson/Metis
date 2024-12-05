@@ -157,11 +157,19 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
         # First do a basic search to get all matching artworks
         for term in search_terms[:3]:  # Limit to first 3 terms to avoid rate limits
             try:
-                # Basic search first - no date filtering
-                search_url = f"{base_url}?q={term}&hasImages=true"
-                logger.info(f"Searching Met API with query: {search_url}")
+                # URL encode the search term
+                encoded_term = requests.utils.quote(term)
+                search_url = f"{base_url}?q={encoded_term}&hasImages=true"
                 
+                logger.info(f"Making API request to: {search_url}")
                 response = requests.get(search_url, timeout=10)
+                
+                logger.info(f"API Response status: {response.status_code}")
+                if response.ok:
+                    logger.info(f"API Response content: {response.text[:500]}")  # Log first 500 chars
+                else:
+                    logger.error(f"API Error response: {response.text}")
+                
                 if response.status_code == 429:
                     logger.error("Met API rate limit exceeded. Please try again later.")
                     break
@@ -172,9 +180,14 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                         new_ids = set(id for id in data['objectIDs'] if id not in recently_shown_artworks)
                         all_ids.update(new_ids)
                         logger.info(f"Found {len(new_ids)} new artworks for term '{term}'")
+                    else:
+                        logger.warning(f"No objectIDs found for term '{term}'")
                 
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout while searching term: {term}")
+                continue
+            except Exception as e:
+                logger.error(f"Error searching term '{term}': {str(e)}")
                 continue
         
         logger.info(f"Total unique artworks found: {len(all_ids)}")
@@ -198,6 +211,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 break
                 
             try:
+                logger.info(f"Fetching details for artwork ID: {obj_id}")
                 obj_response = requests.get(f"{object_url}/{obj_id}", timeout=10)
                 processed_count += 1
                 
@@ -206,6 +220,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                     break
                     
                 if not obj_response.ok:
+                    logger.error(f"Error fetching artwork {obj_id}: {obj_response.status_code} - {obj_response.text}")
                     continue
                     
                 obj = obj_response.json()
@@ -213,6 +228,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 # Skip if no primary image
                 primary_image = obj.get('primaryImage')
                 if not primary_image or not primary_image.startswith('http'):
+                    logger.debug(f"Skipping artwork {obj_id}: No valid primary image")
                     continue
                 
                 # Check if it's relevant to the search terms
@@ -224,6 +240,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 
                 # Build a combined text for searching
                 searchable_text = f"{title} {desc} {medium} {classification} {' '.join(tags)}".lower()
+                logger.debug(f"Searchable text for {obj_id}: {searchable_text[:200]}...")  # Log first 200 chars
                 
                 # Check if any search term appears in the searchable text
                 is_relevant = False
@@ -234,6 +251,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                         break
                 
                 if not is_relevant:
+                    logger.debug(f"Skipping artwork {obj_id}: Not relevant to search terms")
                     continue
                 
                 # Get the year and sort into modern/historic
