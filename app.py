@@ -39,26 +39,38 @@ def index():
 
 @app.route('/search', methods=['POST'])
 def search():
-    """Search endpoint that combines results from multiple art APIs."""
+    """Handle artwork search requests."""
     try:
         data = request.get_json()
-        if not data or 'theme' not in data:
-            return jsonify({'error': 'No theme provided'}), 400
-            
-        theme = data['theme'].strip()
+        theme = data.get('theme', '').strip()
+        
         if not theme:
-            return jsonify({'error': 'Theme cannot be empty'}), 400
+            return jsonify({'error': 'No search theme provided'}), 400
             
-        # Search Met Museum API
-        met_results = search_met_artwork(theme)
+        logger.info(f"Received search request for theme: {theme}")
         
-        # Combine and return results
-        all_results = met_results
+        # Test direct API call first
+        test_url = "https://collectionapi.metmuseum.org/public/collection/v1/search"
+        test_params = {
+            'q': theme,
+            'hasImages': 'true'
+        }
+        logger.info(f"Testing direct API call with URL: {test_url} and params: {test_params}")
         
-        return jsonify({
-            'results': all_results,
-            'count': len(all_results)
-        })
+        test_response = requests.get(test_url, params=test_params, timeout=10)
+        logger.info(f"Direct API test response status: {test_response.status_code}")
+        if test_response.ok:
+            logger.info(f"Direct API test response: {test_response.text[:500]}")
+        
+        # Proceed with normal search
+        results = search_met_artwork(theme)
+        
+        if not results:
+            return jsonify({
+                'error': f'No artwork found for "{theme}". Try a different search term or check your spelling.'
+            }), 404
+            
+        return jsonify({'results': results})
         
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
@@ -157,16 +169,18 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
         # First do a basic search to get all matching artworks
         for term in search_terms[:3]:  # Limit to first 3 terms to avoid rate limits
             try:
-                # URL encode the search term
-                encoded_term = requests.utils.quote(term)
-                search_url = f"{base_url}?q={encoded_term}&hasImages=true"
+                # Use params for proper URL encoding
+                params = {
+                    'q': term,
+                    'hasImages': 'true'
+                }
                 
-                logger.info(f"Making API request to: {search_url}")
-                response = requests.get(search_url, timeout=10)
+                logger.info(f"Making API request to {base_url} with params: {params}")
+                response = requests.get(base_url, params=params, timeout=10)
                 
                 logger.info(f"API Response status: {response.status_code}")
                 if response.ok:
-                    logger.info(f"API Response content: {response.text[:500]}")  # Log first 500 chars
+                    logger.info(f"API Response content: {response.text[:500]}")
                 else:
                     logger.error(f"API Error response: {response.text}")
                 
@@ -176,6 +190,9 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                     
                 if response.ok:
                     data = response.json()
+                    total = data.get('total', 0)
+                    logger.info(f"Total results for term '{term}': {total}")
+                    
                     if data.get('objectIDs'):
                         new_ids = set(id for id in data['objectIDs'] if id not in recently_shown_artworks)
                         all_ids.update(new_ids)
