@@ -1,6 +1,7 @@
 import os
 import random
 import logging
+import re
 from typing import List, Dict, Any
 import requests
 from flask import Flask, render_template, request, jsonify
@@ -137,6 +138,23 @@ def is_religious_artwork(obj: Dict[str, Any]) -> bool:
     
     return any(keyword in text_to_check for keyword in religious_keywords)
 
+def parse_artwork_date(date_str: str) -> int:
+    """Extract the latest year from an artwork date string."""
+    try:
+        # Remove any BCE/CE indicators and clean the string
+        date_str = date_str.lower().replace('bce', '').replace('ce', '').replace('c.', '')
+        
+        # Find all numbers in the string
+        years = [int(year) for year in re.findall(r'\d+', date_str)]
+        
+        if not years:
+            return 0
+            
+        # Return the latest year (usually the end date if a range is given)
+        return max(years)
+    except Exception:
+        return 0
+
 def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
     """Search the Metropolitan Museum API for artwork matching the theme."""
     base_url = "https://collectionapi.metmuseum.org/public/collection/v1/search"
@@ -152,21 +170,27 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
         # Search for each term
         for term in search_terms[:3]:  # Limit to first 3 terms to avoid rate limits
             try:
-                search_url = f"{base_url}?q={term}&hasImages=true"
-                logger.info(f"Searching Met API with term: {term}")
-                response = requests.get(search_url, timeout=10)
+                # Add date filters to encourage modern works
+                modern_search_url = f"{base_url}?q={term}&hasImages=true&dateBegin=1923&dateEnd=2023"
+                historic_search_url = f"{base_url}?q={term}&hasImages=true&dateEnd=1922"
                 
-                if response.status_code == 429:  # Rate limit exceeded
+                logger.info(f"Searching Met API for modern works: {term}")
+                modern_response = requests.get(modern_search_url, timeout=10)
+                
+                logger.info(f"Searching Met API for historic works: {term}")
+                historic_response = requests.get(historic_search_url, timeout=10)
+                
+                if modern_response.status_code == 429 or historic_response.status_code == 429:
                     logger.error("Met API rate limit exceeded. Please try again later.")
                     break
                     
-                if not response.ok:
-                    logger.error(f"Met API search failed for term {term}: {response.status_code}")
-                    continue
-                    
-                data = response.json()
-                if data.get('objectIDs'):
-                    all_object_ids.update(data['objectIDs'])
+                modern_data = modern_response.json() if modern_response.ok else {'objectIDs': []}
+                historic_data = historic_response.json() if historic_response.ok else {'objectIDs': []}
+                
+                if modern_data.get('objectIDs'):
+                    all_object_ids.update(modern_data['objectIDs'])
+                if historic_data.get('objectIDs'):
+                    all_object_ids.update(historic_data['objectIDs'])
                     
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout while searching term: {term}")
@@ -176,27 +200,28 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
             logger.warning(f"No results found for any search terms: {search_terms}")
             return []
             
-        # Convert set to list and randomize
+        # Convert set to list and process
         object_ids = list(all_object_ids)
         logger.info(f"Found {len(object_ids)} total unique artworks across all terms")
         
-        # Truly randomize the selection
-        if len(object_ids) > 100:
-            object_ids = random.sample(object_ids, 100)
+        # Get artwork details and separate by period
+        modern_artworks = []
+        historic_artworks = []
+        processed_count = 0
+        
         random.shuffle(object_ids)
         
-        # Get details for up to 20 random artworks
-        results = []
-        religious_count = 0  # Track number of religious artworks
-        MAX_RELIGIOUS = 2  # Maximum number of religious artworks to include
-        
         for obj_id in object_ids:
-            if len(results) >= 20:  # Stop after getting 20 valid results
+            if len(modern_artworks) + len(historic_artworks) >= 20:  # Stop after getting 20 valid results
+                break
+                
+            if processed_count >= 100:  # Limit total processed to avoid excessive API calls
                 break
                 
             try:
                 logger.info(f"Fetching details for artwork ID: {obj_id}")
                 obj_response = requests.get(f"{object_url}/{obj_id}", timeout=10)
+                processed_count += 1
                 
                 if obj_response.status_code == 429:  # Rate limit exceeded
                     logger.error("Met API rate limit exceeded while fetching artwork details")
@@ -216,7 +241,7 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 
                 # Check if artwork is religious
                 is_religious = is_religious_artwork(obj)
-                if is_religious and religious_count >= MAX_RELIGIOUS:
+                if is_religious and sum(1 for a in modern_artworks + historic_artworks if a.get('is_religious', False)) >= 2:
                     logger.debug(f"Skipping religious artwork {obj_id}: quota reached")
                     continue
                 
@@ -224,11 +249,14 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 artist = obj.get('artistDisplayName', 'Unknown')
                 culture = obj.get('culture', 'Unknown')
                 period = obj.get('period', 'Unknown')
+                date_str = obj.get('objectDate', '')
+                year = parse_artwork_date(date_str)
                 
                 artwork = {
                     'title': obj.get('title', 'Untitled'),
                     'artist': artist if artist != 'Unknown' else None,
-                    'date': obj.get('objectDate', ''),
+                    'date': date_str,
+                    'year': year,
                     'medium': obj.get('medium', ''),
                     'culture': culture if culture != 'Unknown' else None,
                     'period': period if period != 'Unknown' else None,
@@ -244,12 +272,15 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                     'is_religious': is_religious
                 }
                 
-                results.append(artwork)
-                logger.info(f"Added artwork: {artwork['title']}")
-                
-                if is_religious:
-                    religious_count += 1
-                    logger.debug(f"Added religious artwork ({religious_count}/{MAX_RELIGIOUS})")
+                # Sort into modern or historic based on year
+                if year >= 1923:  # Last 100 years
+                    if len(modern_artworks) < 10:  # Ensure we don't exceed our quota
+                        modern_artworks.append(artwork)
+                        logger.info(f"Added modern artwork: {artwork['title']} ({year})")
+                else:
+                    if len(historic_artworks) < 10:  # Ensure we don't exceed our quota
+                        historic_artworks.append(artwork)
+                        logger.info(f"Added historic artwork: {artwork['title']} ({year})")
                 
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout while fetching artwork {obj_id}")
@@ -258,7 +289,28 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 logger.error(f"Error processing Met object {obj_id}: {str(e)}")
                 continue
                 
-        logger.info(f"Found {len(results)} valid results (including {religious_count} religious works) for theme: {theme}")
+        # Combine results, ensuring balanced representation
+        results = []
+        modern_count = len(modern_artworks)
+        historic_count = len(historic_artworks)
+        
+        logger.info(f"Found {modern_count} modern and {historic_count} historic artworks")
+        
+        # Add all modern works
+        results.extend(modern_artworks)
+        
+        # Add historic works to fill the remainder
+        results.extend(historic_artworks[:20-len(results)])
+        
+        # If we don't have enough modern works, add more historic ones
+        if len(results) < 20 and historic_count > len(historic_artworks[:20-len(modern_artworks)]):
+            additional_historic = historic_artworks[20-len(modern_artworks):20]
+            results.extend(additional_historic)
+        
+        random.shuffle(results)  # Randomize final order
+        
+        logger.info(f"Returning {len(results)} total results ({sum(1 for a in results if a['year'] >= 1923)} modern, "
+                   f"{sum(1 for a in results if a['year'] < 1923)} historic)")
         return results
         
     except requests.exceptions.Timeout:
