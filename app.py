@@ -65,67 +65,39 @@ def search():
         return jsonify({'error': str(e)}), 500
 
 def expand_search_terms(theme: str) -> List[str]:
-    """Expand search terms with relevant art-related keywords."""
-    # Dictionary of common art themes and related terms
-    theme_expansions = {
-        'nature': ['landscape', 'flowers', 'animals', 'birds', 'trees', 'garden'],
-        'people': ['portrait', 'figure', 'human', 'face', 'crowd'],
-        'culture': ['ceremony', 'ritual', 'tradition', 'festival', 'customs'],
-        'religion': ['sacred', 'divine', 'worship', 'deity', 'spiritual'],
-        'daily life': ['scene', 'activity', 'domestic', 'everyday'],
-        'war': ['battle', 'conflict', 'military', 'warrior', 'combat'],
-        'love': ['romance', 'couple', 'embrace', 'affection'],
-        'death': ['memorial', 'tomb', 'funeral', 'mourning'],
-        'power': ['royal', 'ruler', 'throne', 'crown', 'authority'],
-        'work': ['labor', 'craft', 'occupation', 'trade', 'skill'],
-        'education': ['learning', 'teaching', 'school', 'study', 'knowledge'],
-        'family': ['mother', 'father', 'child', 'parent', 'household'],
-        'identity': ['self', 'portrait', 'personal', 'individual'],
-        'mythology': ['myth', 'legend', 'god', 'hero', 'folklore'],
-        'social justice': ['protest', 'rights', 'equality', 'freedom', 'justice'],
-        'gender': ['women', 'men', 'feminine', 'masculine', 'identity'],
-        'race': ['ethnic', 'diversity', 'cultural', 'identity', 'heritage'],
+    """Expand search terms to include related concepts."""
+    theme = theme.lower().strip()
+    
+    # Log original theme
+    logger.info(f"Original search theme: {theme}")
+    
+    # Basic term mapping
+    term_mapping = {
+        'rainbow': ['rainbow', 'rainbows', 'spectrum', 'iridescent', 'prismatic'],
+        'rainbows': ['rainbow', 'rainbows', 'spectrum', 'iridescent', 'prismatic'],
+        'nature': ['nature', 'landscape', 'natural', 'organic', 'flora', 'fauna'],
+        'identity': ['identity', 'portrait', 'self-portrait', 'figure', 'personal'],
+        'social': ['social', 'society', 'community', 'people', 'gathering'],
+        'justice': ['justice', 'equality', 'rights', 'freedom', 'liberty'],
+        'power': ['power', 'authority', 'strength', 'force', 'might'],
     }
     
-    # List of art movements and styles
-    art_movements = [
-        'contemporary', 'modern', 'classical', 'ancient', 'traditional',
-        'abstract', 'realistic', 'impressionist', 'expressionist',
-        'indigenous', 'folk', 'tribal', 'ceremonial'
-    ]
+    # Get base terms
+    terms = set([theme])  # Start with original term
     
-    # List of art mediums
-    art_mediums = [
-        'painting', 'sculpture', 'textile', 'ceramic', 'print',
-        'photograph', 'drawing', 'carving', 'weaving', 'pottery'
-    ]
+    # Add mapped terms if they exist
+    if theme in term_mapping:
+        terms.update(term_mapping[theme])
     
-    search_terms = [theme]  # Start with original theme
-    theme_lower = theme.lower()
+    # Add any word-by-word mappings
+    for word in theme.split():
+        if word in term_mapping:
+            terms.update(term_mapping[word])
     
-    # Add related theme terms
-    for key, values in theme_expansions.items():
-        if any(word in theme_lower for word in [key] + values):
-            search_terms.extend(values)
-            break
+    # Log expanded terms
+    logger.info(f"Expanded search terms: {terms}")
     
-    # Add relevant art movements based on keywords
-    if 'modern' in theme_lower or 'contemporary' in theme_lower:
-        search_terms.extend(['modern', 'contemporary', '20th century', '21st century'])
-    elif 'ancient' in theme_lower or 'historical' in theme_lower:
-        search_terms.extend(['ancient', 'historical', 'classical'])
-    elif 'traditional' in theme_lower or 'cultural' in theme_lower:
-        search_terms.extend(['traditional', 'indigenous', 'folk'])
-    
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_terms = []
-    for term in search_terms:
-        if term not in seen:
-            seen.add(term)
-            unique_terms.append(term)
-    
-    return unique_terms
+    return list(terms)
 
 def is_religious_artwork(obj: Dict[str, Any]) -> bool:
     """Check if artwork is likely religious based on metadata."""
@@ -246,7 +218,22 @@ def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
                 # Check if it's relevant to the search terms
                 title = obj.get('title', '').lower()
                 desc = obj.get('description', '').lower()
-                if not any(term.lower() in title or term.lower() in desc for term in search_terms):
+                tags = obj.get('tags', [])
+                medium = obj.get('medium', '').lower()
+                classification = obj.get('classification', '').lower()
+                
+                # Build a combined text for searching
+                searchable_text = f"{title} {desc} {medium} {classification} {' '.join(tags)}".lower()
+                
+                # Check if any search term appears in the searchable text
+                is_relevant = False
+                for term in search_terms:
+                    if term.lower() in searchable_text:
+                        is_relevant = True
+                        logger.info(f"Found relevant artwork: {title} (matches term: {term})")
+                        break
+                
+                if not is_relevant:
                     continue
                 
                 # Get the year and sort into modern/historic
