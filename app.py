@@ -44,33 +44,59 @@ def expand_search_terms(theme: str) -> List[str]:
     # Log original theme
     logger.info(f"Original search theme: {theme}")
     
-    # Basic term mapping
+    # Basic term mapping for art concepts
     term_mapping = {
-        'rainbow': ['rainbow', 'rainbows', 'spectrum', 'iridescent', 'prismatic'],
-        'rainbows': ['rainbow', 'rainbows', 'spectrum', 'iridescent', 'prismatic'],
-        'nature': ['nature', 'landscape', 'natural', 'organic', 'flora', 'fauna'],
-        'identity': ['identity', 'portrait', 'self-portrait', 'figure', 'personal'],
-        'social': ['social', 'society', 'community', 'people', 'gathering'],
-        'justice': ['justice', 'equality', 'rights', 'freedom', 'liberty'],
-        'power': ['power', 'authority', 'strength', 'force', 'might'],
+        'rainbow': [
+            'rainbow', 'spectrum', 'iridescent', 'prismatic', 'multicolored',
+            'chromatic', 'kaleidoscope', 'color field', 'optical art', 'light art',
+            'contemporary', 'modern', 'abstract', 'digital', 'new media'
+        ],
+        'nature': [
+            'nature', 'landscape', 'environmental', 'ecological', 'organic',
+            'earth art', 'land art', 'eco art', 'sustainable', 'biomorphic',
+            'contemporary landscape', 'modern nature', 'urban nature'
+        ],
+        'identity': [
+            'identity', 'portrait', 'self-expression', 'cultural identity',
+            'gender', 'race', 'ethnicity', 'contemporary portrait', 'modern identity',
+            'social identity', 'digital identity', 'performance art'
+        ],
+        'modern': [
+            'modern', 'contemporary', 'abstract', 'minimalist', 'conceptual',
+            'experimental', 'avant-garde', 'innovative', 'digital', 'new media',
+            'installation', 'mixed media', 'performance'
+        ],
+        'color': [
+            'color', 'chromatic', 'vibrant', 'multicolored', 'polychrome',
+            'color field', 'optical art', 'light art', 'digital color',
+            'contemporary palette', 'modern color', 'neon', 'fluorescent'
+        ]
     }
     
-    # Get base terms
-    terms = set([theme])  # Start with original term
+    # Start with the original theme
+    expanded_terms = [theme]
     
-    # Add mapped terms if they exist
-    if theme in term_mapping:
-        terms.update(term_mapping[theme])
+    # Add mapped terms if available
+    for key, terms in term_mapping.items():
+        if any(word in theme for word in [key, key.rstrip('s'), key + 's']):
+            expanded_terms.extend(terms)
+            
+    # Add contemporary art movement terms
+    modern_terms = [
+        'contemporary art', 'modern art', 'abstract', 'mixed media',
+        'new media', 'digital art', 'installation art', 'conceptual art',
+        'experimental', 'avant-garde', 'post-modern'
+    ]
     
-    # Add any word-by-word mappings
-    for word in theme.split():
-        if word in term_mapping:
-            terms.update(term_mapping[word])
+    # Add some modern terms to every search
+    expanded_terms.extend(modern_terms[:3])  # Add a few modern terms to every search
     
-    # Log expanded terms
-    logger.info(f"Expanded search terms: {terms}")
+    # Remove duplicates while preserving order
+    seen = set()
+    expanded_terms = [x for x in expanded_terms if not (x in seen or seen.add(x))]
     
-    return list(terms)
+    logger.info(f"Expanded search terms: {expanded_terms}")
+    return expanded_terms
 
 def is_religious_artwork(obj: Dict[str, Any]) -> bool:
     """Check if artwork is likely religious based on metadata."""
@@ -114,70 +140,91 @@ def parse_artwork_date(date_str: str) -> int:
 def search_aic_artwork(theme: str) -> List[Dict[str, Any]]:
     """Search the Art Institute of Chicago API for artwork matching the theme."""
     try:
-        # Use the public search endpoint
-        search_url = f"{AIC_API_BASE}/artworks/search"
-        params = {
-            'q': theme,
-            'limit': 30,  # Get more results to allow for filtering
-            'fields': [
-                'id', 'title', 'artist_display', 'date_display', 'medium_display',
-                'image_id', 'thumbnail', 'department_title', 'dimensions_display',
-                'credit_line', 'date_start', 'artist_title', 'place_of_origin',
-                'classification_title'
-            ]
-        }
+        # Expand search terms to include modern art terms
+        search_terms = expand_search_terms(theme)
+        all_artworks = []
         
-        logger.info(f"Searching AIC with term: {theme}")
-        response = requests.get(search_url, params=params, timeout=10)
-        
-        if not response.ok:
-            logger.error(f"AIC API error: {response.status_code} - {response.text}")
-            return []
+        for term in search_terms[:5]:  # Try first 5 terms
+            # Use the public search endpoint
+            search_url = f"{AIC_API_BASE}/artworks/search"
+            params = {
+                'q': term,
+                'limit': 30,
+                'fields': [
+                    'id', 'title', 'artist_display', 'date_display', 'medium_display',
+                    'image_id', 'thumbnail', 'department_title', 'dimensions_display',
+                    'credit_line', 'date_start', 'artist_title', 'place_of_origin',
+                    'classification_title', 'style_title', 'category_titles'
+                ]
+            }
             
-        data = response.json()
-        results = data.get('data', [])
-        
-        if not results:
-            return []
+            logger.info(f"Searching AIC with term: {term}")
+            response = requests.get(search_url, params=params, timeout=10)
             
-        artworks = []
-        for artwork in results:
-            # Skip if no image
-            if not artwork.get('image_id'):
+            if not response.ok:
                 continue
                 
-            # Get year
-            year = artwork.get('date_start')
-            is_modern = year >= 1923 if year else False
+            data = response.json()
+            results = data.get('data', [])
             
-            # Check for religious content
-            religious_terms = {'religious', 'sacred', 'holy', 'divine', 'biblical', 'christian', 'islamic', 'buddhist', 'hindu'}
-            is_religious = any(term.lower() in str(artwork.get('title', '')).lower() or
-                             term.lower() in str(artwork.get('classification_title', '')).lower()
-                             for term in religious_terms)
-            
-            # Create image URL using IIIF
-            image_url = f"{AIC_IMAGE_BASE}/{artwork['image_id']}/full/843,/0/default.jpg"
-            
-            artworks.append({
-                'id': f"AIC_{artwork['id']}",
-                'title': artwork.get('title', 'Untitled'),
-                'artist': artwork.get('artist_display', 'Unknown Artist'),
-                'date': artwork.get('date_display', 'Date unknown'),
-                'medium': artwork.get('medium_display', 'Medium unknown'),
-                'culture': artwork.get('place_of_origin', 'Culture unknown'),
-                'image_url': image_url,
-                'object_url': f"https://www.artic.edu/artworks/{artwork['id']}",
-                'department': artwork.get('department_title', 'Department unknown'),
-                'dimensions': artwork.get('dimensions_display', 'Dimensions unknown'),
-                'credit': artwork.get('credit_line', 'Credit unknown'),
-                'museum': 'Art Institute of Chicago',
-                'is_modern': is_modern,
-                'is_religious': is_religious,
-                'year': year
-            })
+            if not results:
+                continue
+                
+            for artwork in results:
+                # Skip if no image
+                if not artwork.get('image_id'):
+                    continue
+                    
+                # Get year
+                year = artwork.get('date_start')
+                is_modern = year >= 1900 if year else False  # Expanded modern period
+                
+                # Check for religious content
+                religious_terms = {'religious', 'sacred', 'holy', 'divine', 'biblical', 'christian', 'islamic', 'buddhist', 'hindu'}
+                is_religious = any(term.lower() in str(artwork.get('title', '')).lower() or
+                                 term.lower() in str(artwork.get('classification_title', '')).lower()
+                                 for term in religious_terms)
+                
+                # Create image URL using IIIF
+                image_url = f"{AIC_IMAGE_BASE}/{artwork['image_id']}/full/843,/0/default.jpg"
+                
+                # Get style and category information
+                style = artwork.get('style_title', '')
+                categories = artwork.get('category_titles', [])
+                
+                # Determine if it's contemporary/modern based on style and categories
+                modern_indicators = {'modern', 'contemporary', 'abstract', 'minimal', 'conceptual', 
+                                   'pop art', 'digital', 'new media', 'installation', 'performance'}
+                style_is_modern = any(indicator in str(style).lower() for indicator in modern_indicators)
+                categories_are_modern = any(any(indicator in cat.lower() for indicator in modern_indicators) 
+                                         for cat in categories)
+                
+                # Consider it modern if either the year, style, or categories indicate so
+                is_modern = is_modern or style_is_modern or categories_are_modern
+                
+                artwork_dict = {
+                    'id': f"AIC_{artwork['id']}",
+                    'title': artwork.get('title', 'Untitled'),
+                    'artist': artwork.get('artist_display', 'Unknown Artist'),
+                    'date': artwork.get('date_display', 'Date unknown'),
+                    'medium': artwork.get('medium_display', 'Medium unknown'),
+                    'culture': artwork.get('place_of_origin', 'Culture unknown'),
+                    'image_url': image_url,
+                    'object_url': f"https://www.artic.edu/artworks/{artwork['id']}",
+                    'department': artwork.get('department_title', 'Department unknown'),
+                    'dimensions': artwork.get('dimensions_display', 'Dimensions unknown'),
+                    'credit': artwork.get('credit_line', 'Credit unknown'),
+                    'museum': 'Art Institute of Chicago',
+                    'is_modern': is_modern,
+                    'is_religious': is_religious,
+                    'year': year,
+                    'style': style,
+                    'categories': categories
+                }
+                
+                all_artworks.append(artwork_dict)
         
-        return artworks
+        return all_artworks
         
     except Exception as e:
         logger.error(f"Error in AIC search: {str(e)}")
@@ -186,77 +233,95 @@ def search_aic_artwork(theme: str) -> List[Dict[str, Any]]:
 def search_met_artwork(theme: str) -> List[Dict[str, Any]]:
     """Search the Metropolitan Museum API for artwork matching the theme."""
     try:
-        search_url = f"{MET_API_BASE}/search"
-        params = {
-            'q': theme,
-            'hasImages': 'true'
-        }
+        # Expand search terms to include modern art terms
+        search_terms = expand_search_terms(theme)
+        all_artworks = []
         
-        logger.info(f"Searching Met with term: {theme}")
-        response = requests.get(search_url, params=params, timeout=10)
-        
-        if not response.ok:
-            logger.error(f"Met API error: {response.status_code} - {response.text}")
-            return []
+        for term in search_terms[:5]:  # Try first 5 terms
+            search_url = f"{MET_API_BASE}/search"
+            params = {
+                'q': term,
+                'hasImages': 'true'
+            }
             
-        data = response.json()
-        object_ids = data.get('objectIDs', [])
-        
-        if not object_ids:
-            return []
+            logger.info(f"Searching Met with term: {term}")
+            response = requests.get(search_url, params=params, timeout=10)
             
-        # Shuffle and take first 30
-        random.shuffle(object_ids)
-        object_ids = object_ids[:30]
-        
-        artworks = []
-        for obj_id in object_ids:
-            try:
-                obj_url = f"{MET_API_BASE}/objects/{obj_id}"
-                obj_response = requests.get(obj_url, timeout=10)
-                
-                if not obj_response.ok:
-                    continue
-                    
-                artwork = obj_response.json()
-                
-                # Skip if no image
-                if not artwork.get('primaryImage'):
-                    continue
-                    
-                # Get year
-                year = parse_artwork_date(artwork.get('objectDate', ''))
-                is_modern = year >= 1923 if year else False
-                
-                # Check for religious content
-                religious_terms = {'religious', 'sacred', 'holy', 'divine', 'biblical', 'christian', 'islamic', 'buddhist', 'hindu'}
-                is_religious = any(term.lower() in str(artwork.get('title', '')).lower() or
-                                 term.lower() in str(artwork.get('classification', '')).lower()
-                                 for term in religious_terms)
-                
-                artworks.append({
-                    'id': f"MET_{obj_id}",
-                    'title': artwork.get('title', 'Untitled'),
-                    'artist': artwork.get('artistDisplayName', 'Unknown Artist'),
-                    'date': artwork.get('objectDate', 'Date unknown'),
-                    'medium': artwork.get('medium', 'Medium unknown'),
-                    'culture': artwork.get('culture', 'Culture unknown'),
-                    'image_url': artwork.get('primaryImage'),
-                    'object_url': artwork.get('objectURL'),
-                    'department': artwork.get('department', 'Department unknown'),
-                    'dimensions': artwork.get('dimensions', 'Dimensions unknown'),
-                    'credit': artwork.get('creditLine', 'Credit unknown'),
-                    'museum': 'The Metropolitan Museum of Art',
-                    'is_modern': is_modern,
-                    'is_religious': is_religious,
-                    'year': year
-                })
-                
-            except Exception as e:
-                logger.error(f"Error fetching Met artwork {obj_id}: {str(e)}")
+            if not response.ok:
                 continue
+                
+            data = response.json()
+            object_ids = data.get('objectIDs', [])
+            
+            if not object_ids:
+                continue
+                
+            # Shuffle and take first 20
+            random.shuffle(object_ids)
+            object_ids = object_ids[:20]
+            
+            for obj_id in object_ids:
+                try:
+                    obj_url = f"{MET_API_BASE}/objects/{obj_id}"
+                    obj_response = requests.get(obj_url, timeout=10)
+                    
+                    if not obj_response.ok:
+                        continue
+                        
+                    artwork = obj_response.json()
+                    
+                    # Skip if no image
+                    if not artwork.get('primaryImage'):
+                        continue
+                        
+                    # Get year
+                    year = parse_artwork_date(artwork.get('objectDate', ''))
+                    
+                    # Check for modern indicators in various fields
+                    modern_indicators = {'modern', 'contemporary', 'abstract', 'minimal', 'conceptual', 
+                                       'pop art', 'digital', 'new media', 'installation', 'performance'}
+                    
+                    is_modern = (
+                        (year >= 1900 if year else False) or  # Expanded modern period
+                        any(indicator in str(artwork.get('classification', '')).lower() 
+                            for indicator in modern_indicators) or
+                        any(indicator in str(artwork.get('department', '')).lower() 
+                            for indicator in modern_indicators) or
+                        any(indicator in str(artwork.get('artistDisplayName', '')).lower() 
+                            for indicator in modern_indicators)
+                    )
+                    
+                    # Check for religious content
+                    religious_terms = {'religious', 'sacred', 'holy', 'divine', 'biblical', 'christian', 'islamic', 'buddhist', 'hindu'}
+                    is_religious = any(term.lower() in str(artwork.get('title', '')).lower() or
+                                     term.lower() in str(artwork.get('classification', '')).lower()
+                                     for term in religious_terms)
+                    
+                    artwork_dict = {
+                        'id': f"MET_{obj_id}",
+                        'title': artwork.get('title', 'Untitled'),
+                        'artist': artwork.get('artistDisplayName', 'Unknown Artist'),
+                        'date': artwork.get('objectDate', 'Date unknown'),
+                        'medium': artwork.get('medium', 'Medium unknown'),
+                        'culture': artwork.get('culture', 'Culture unknown'),
+                        'image_url': artwork.get('primaryImage'),
+                        'object_url': artwork.get('objectURL'),
+                        'department': artwork.get('department', 'Department unknown'),
+                        'dimensions': artwork.get('dimensions', 'Dimensions unknown'),
+                        'credit': artwork.get('creditLine', 'Credit unknown'),
+                        'museum': 'The Metropolitan Museum of Art',
+                        'is_modern': is_modern,
+                        'is_religious': is_religious,
+                        'year': year
+                    }
+                    
+                    all_artworks.append(artwork_dict)
+                    
+                except Exception as e:
+                    logger.error(f"Error fetching Met artwork {obj_id}: {str(e)}")
+                    continue
         
-        return artworks
+        return all_artworks
         
     except Exception as e:
         logger.error(f"Error in Met search: {str(e)}")
@@ -295,7 +360,7 @@ def combine_and_filter_results(met_results: List[Dict[str, Any]],
                 continue
         
         # Check modern/historic balance
-        if artwork['is_modern']:
+        if artwork.get('is_modern'):
             if modern_count >= 10:
                 continue
         else:
@@ -303,19 +368,19 @@ def combine_and_filter_results(met_results: List[Dict[str, Any]],
                 continue
                 
         # Check religious quota
-        if artwork['is_religious'] and religious_count >= 2:
+        if artwork.get('is_religious') and religious_count >= 2:
             continue
             
         # Add artwork
         final_results.append(artwork)
         
         # Update counters
-        if artwork['is_modern']:
+        if artwork.get('is_modern'):
             modern_count += 1
         else:
             historic_count += 1
             
-        if artwork['is_religious']:
+        if artwork.get('is_religious'):
             religious_count += 1
             
         if artwork['museum'] == 'The Metropolitan Museum of Art':
