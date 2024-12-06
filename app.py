@@ -114,6 +114,7 @@ def parse_artwork_date(date_str: str) -> int:
 def search_aic_artwork(theme: str) -> List[Dict[str, Any]]:
     """Search the Art Institute of Chicago API for artwork matching the theme."""
     try:
+        # Use the public search endpoint
         search_url = f"{AIC_API_BASE}/artworks/search"
         params = {
             'q': theme,
@@ -341,24 +342,71 @@ def search():
             
         logger.info(f"Received search request for theme: {theme}")
         
-        # Search both museums
+        # Search both museums in parallel
         met_results = search_met_artwork(theme)
         aic_results = search_aic_artwork(theme)
         
-        # Combine and filter results
-        final_results = combine_and_filter_results(met_results, aic_results)
+        # Combine all results
+        all_results = met_results + aic_results
         
-        if not final_results:
+        if not all_results:
             return jsonify({
                 'error': f'No artwork found for "{theme}". Try a different search term or check your spelling.'
             }), 404
             
-        # Log result statistics
-        met_count = sum(1 for r in final_results if r['museum'] == 'The Metropolitan Museum of Art')
-        aic_count = sum(1 for r in final_results if r['museum'] == 'Art Institute of Chicago')
-        modern_count = sum(1 for r in final_results if r['is_modern'])
-        religious_count = sum(1 for r in final_results if r['is_religious'])
+        # Shuffle results
+        random.shuffle(all_results)
         
+        # Filter and balance results
+        final_results = []
+        modern_count = 0
+        historic_count = 0
+        religious_count = 0
+        met_count = 0
+        aic_count = 0
+        
+        for artwork in all_results:
+            if len(final_results) >= 20:  # Return up to 20 total results
+                break
+                
+            # Check museum quotas (max 10 from each)
+            if artwork['museum'] == 'The Metropolitan Museum of Art':
+                if met_count >= 10:
+                    continue
+            else:
+                if aic_count >= 10:
+                    continue
+            
+            # Check modern/historic balance
+            if artwork.get('is_modern'):
+                if modern_count >= 10:
+                    continue
+            else:
+                if historic_count >= 10:
+                    continue
+                    
+            # Check religious quota
+            if artwork.get('is_religious') and religious_count >= 2:
+                continue
+                
+            # Add artwork
+            final_results.append(artwork)
+            
+            # Update counters
+            if artwork.get('is_modern'):
+                modern_count += 1
+            else:
+                historic_count += 1
+                
+            if artwork.get('is_religious'):
+                religious_count += 1
+                
+            if artwork['museum'] == 'The Metropolitan Museum of Art':
+                met_count += 1
+            else:
+                aic_count += 1
+        
+        # Log result statistics
         logger.info(f"Found {len(final_results)} total results:")
         logger.info(f"- Met: {met_count}, AIC: {aic_count}")
         logger.info(f"- Modern: {modern_count}, Historic: {len(final_results) - modern_count}")
