@@ -169,7 +169,10 @@ async function searchArtwork() {
                     <img src="${artwork.image_url}" 
                          alt="${escapeHtml(artwork.title) || 'Artwork'}" 
                          class="artwork-image"
-                         onerror="this.onerror=null; this.src='https://via.placeholder.com/400x400?text=Image+Not+Available'; this.classList.add('placeholder-image');">
+                         loading="lazy"
+                         crossorigin="anonymous"
+                         onerror="handleImageError(this)"
+                         onload="handleImageLoad(this)">
                 ` : `
                     <div class="image-error" style="text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
                         <i>Image not available</i>
@@ -231,6 +234,18 @@ function showError(message) {
             ${escapeHtml(message)}
         </div>
     `;
+}
+
+function handleImageError(img) {
+    console.error('Failed to load image:', img.src);
+    img.onerror = null;
+    img.src = 'https://via.placeholder.com/400x400?text=Image+Not+Available';
+    img.classList.add('placeholder-image');
+}
+
+function handleImageLoad(img) {
+    console.log('Successfully loaded image:', img.src);
+    img.classList.remove('placeholder-image');
 }
 
 function escapeHtml(unsafe) {
