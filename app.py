@@ -465,36 +465,92 @@ def index():
 def search():
     """Handle artwork search requests."""
     theme = request.args.get('theme', '').strip()
+    logger.debug(f"Received search theme: {theme}")
+    
     if not theme:
+        logger.warning("No search theme provided")
         return jsonify({'error': 'No search theme provided'}), 400
     
     try:
         # Encode theme for URL safety
         encoded_theme = urllib.parse.quote(theme)
+        logger.info(f"Encoded search theme: {encoded_theme}")
         
-        # Search both APIs
-        met_results = search_met_artwork(encoded_theme)
-        aic_results = search_aic_artwork(encoded_theme)
+        # Search both APIs with explicit error handling
+        met_results = []
+        aic_results = []
+        
+        try:
+            met_results = search_met_artwork(encoded_theme)
+            logger.info(f"Met results count: {len(met_results)}")
+        except Exception as met_error:
+            logger.error(f"Met API search error: {met_error}", exc_info=True)
+        
+        try:
+            aic_results = search_aic_artwork(encoded_theme)
+            logger.info(f"AIC results count: {len(aic_results)}")
+        except Exception as aic_error:
+            logger.error(f"AIC API search error: {aic_error}", exc_info=True)
         
         # Combine and filter results
-        results = combine_and_filter_results(met_results, aic_results)
+        try:
+            results = combine_and_filter_results(met_results, aic_results)
+            logger.info(f"Combined results count: {len(results)}")
+        except Exception as combine_error:
+            logger.error(f"Result combination error: {combine_error}", exc_info=True)
+            results = []
         
         if not results:
+            logger.warning("No results found for the search theme")
             return jsonify({
-                'error': 'No results found. Try different search terms or check back later.'
+                'error': 'No results found. Try different search terms or check back later.',
+                'theme': theme
             }), 404
         
-        # Add timestamp to response
+        # Ensure all results are JSON serializable with extensive logging
+        serializable_results = []
+        for idx, result in enumerate(results):
+            try:
+                # Detailed serialization attempt
+                serializable_result = {}
+                for k, v in result.items():
+                    try:
+                        # Attempt to serialize each value
+                        json.dumps(v)
+                        serializable_result[k] = v
+                    except TypeError:
+                        # Log specific serialization failures
+                        try:
+                            serializable_result[k] = str(v)
+                            logger.debug(f"Converted {k} to string: {serializable_result[k]}")
+                        except Exception as convert_error:
+                            logger.error(f"Failed to convert {k} for result {idx}: {convert_error}")
+                            serializable_result[k] = f"Unconvertible value of type {type(v)}"
+                
+                serializable_results.append(serializable_result)
+            except Exception as serialize_error:
+                logger.error(f"Serialization error for result {idx}: {serialize_error}", exc_info=True)
+        
+        # Comprehensive response data
         response_data = {
-            'results': results,
-            'timestamp': int(time.time())
+            'results': serializable_results,
+            'timestamp': int(time.time()),
+            'theme': theme,
+            'result_count': len(serializable_results)
         }
+        
+        # Log response data structure for debugging
+        logger.debug(f"Response data structure: {json.dumps(response_data, indent=2)}")
         
         return jsonify(response_data)
         
     except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        return jsonify({'error': 'An error occurred during search'}), 500
+        logger.error(f"Unexpected search error: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'An unexpected error occurred during search',
+            'details': str(e),
+            'theme': theme
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
