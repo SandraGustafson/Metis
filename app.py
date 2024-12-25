@@ -9,9 +9,15 @@ from flask_bootstrap import Bootstrap
 from dotenv import load_dotenv
 import time
 import urllib.parse
+import traceback
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure more detailed logging
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.StreamHandler(),
+                        logging.FileHandler('app_debug.log')
+                    ])
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -461,96 +467,69 @@ def index():
     """Render the main page."""
     return render_template('index.html')
 
-@app.route('/search', methods=['GET'])
+@app.route('/search', methods=['GET', 'OPTIONS'])
 def search():
-    """Handle artwork search requests."""
-    theme = request.args.get('theme', '').strip()
-    logger.debug(f"Received search theme: {theme}")
-    
-    if not theme:
-        logger.warning("No search theme provided")
-        return jsonify({'error': 'No search theme provided'}), 400
-    
+    """Comprehensive search route with detailed logging and CORS support."""
+    # Log all incoming request details
+    logger.debug("=" * 50)
+    logger.debug("INCOMING REQUEST DETAILS")
+    logger.debug(f"Request Method: {request.method}")
+    logger.debug(f"Request Full URL: {request.url}")
+    logger.debug(f"Request Headers: {dict(request.headers)}")
+    logger.debug(f"Request Args: {dict(request.args)}")
+    logger.debug(f"Request Remote Addr: {request.remote_addr}")
+    logger.debug("=" * 50)
+
+    # Handle OPTIONS request for CORS
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
+
     try:
-        # Encode theme for URL safety
-        encoded_theme = urllib.parse.quote(theme)
-        logger.info(f"Encoded search theme: {encoded_theme}")
+        # Capture search theme
+        theme = request.args.get('theme', '').strip()
         
-        # Search both APIs with explicit error handling
-        met_results = []
-        aic_results = []
-        
-        try:
-            met_results = search_met_artwork(encoded_theme)
-            logger.info(f"Met results count: {len(met_results)}")
-        except Exception as met_error:
-            logger.error(f"Met API search error: {met_error}", exc_info=True)
-        
-        try:
-            aic_results = search_aic_artwork(encoded_theme)
-            logger.info(f"AIC results count: {len(aic_results)}")
-        except Exception as aic_error:
-            logger.error(f"AIC API search error: {aic_error}", exc_info=True)
-        
-        # Combine and filter results
-        try:
-            results = combine_and_filter_results(met_results, aic_results)
-            logger.info(f"Combined results count: {len(results)}")
-        except Exception as combine_error:
-            logger.error(f"Result combination error: {combine_error}", exc_info=True)
-            results = []
-        
-        if not results:
-            logger.warning("No results found for the search theme")
+        if not theme:
+            logger.warning("No theme provided in search request")
             return jsonify({
-                'error': 'No results found. Try different search terms or check back later.',
-                'theme': theme
-            }), 404
+                'status': 'error',
+                'message': 'No search theme provided'
+            }), 400
         
-        # Ensure all results are JSON serializable with extensive logging
-        serializable_results = []
-        for idx, result in enumerate(results):
-            try:
-                # Detailed serialization attempt
-                serializable_result = {}
-                for k, v in result.items():
-                    try:
-                        # Attempt to serialize each value
-                        json.dumps(v)
-                        serializable_result[k] = v
-                    except TypeError:
-                        # Log specific serialization failures
-                        try:
-                            serializable_result[k] = str(v)
-                            logger.debug(f"Converted {k} to string: {serializable_result[k]}")
-                        except Exception as convert_error:
-                            logger.error(f"Failed to convert {k} for result {idx}: {convert_error}")
-                            serializable_result[k] = f"Unconvertible value of type {type(v)}"
-                
-                serializable_results.append(serializable_result)
-            except Exception as serialize_error:
-                logger.error(f"Serialization error for result {idx}: {serialize_error}", exc_info=True)
+        # Perform search
+        results = search_aic_artwork(theme)
         
-        # Comprehensive response data
+        # Prepare response
         response_data = {
-            'results': serializable_results,
-            'timestamp': int(time.time()),
+            'status': 'success',
             'theme': theme,
-            'result_count': len(serializable_results)
+            'results': results,
+            'total': len(results)
         }
         
-        # Log response data structure for debugging
-        logger.debug(f"Response data structure: {json.dumps(response_data, indent=2)}")
+        # Create response with explicit headers
+        response = jsonify(response_data)
+        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+        response.headers['Access-Control-Allow-Origin'] = '*'
         
-        return jsonify(response_data)
-        
+        logger.debug(f"Search Response: {response_data}")
+        return response
+    
     except Exception as e:
-        logger.error(f"Unexpected search error: {str(e)}", exc_info=True)
-        return jsonify({
-            'error': 'An unexpected error occurred during search',
-            'details': str(e),
-            'theme': theme
-        }), 500
+        logger.error(f"CRITICAL ERROR in search route: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        error_response = jsonify({
+            'status': 'error',
+            'message': 'Unexpected server error',
+            'error_details': str(e)
+        })
+        error_response.headers['Content-Type'] = 'application/json; charset=utf-8'
+        error_response.headers['Access-Control-Allow-Origin'] = '*'
+        return error_response, 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))

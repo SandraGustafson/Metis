@@ -135,25 +135,10 @@ async function searchArtwork() {
     errorContainer.innerHTML = '';
 
     try {
-        console.log('Searching for theme:', theme);
-        
-        const response = await fetch('/search', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ theme })
-        });
-
-        const data = await response.json();
+        const data = await searchArtworks(theme);
         console.log('Response data:', data);
 
         loading.style.display = 'none';
-
-        if (!response.ok) {
-            throw new Error(data.error || `Server error: ${response.status}`);
-        }
 
         if (!data.results || data.results.length === 0) {
             results.innerHTML = `
@@ -224,6 +209,67 @@ async function searchArtwork() {
         console.error('Search error:', error);
         loading.style.display = 'none';
         showError(error.message || 'An error occurred while searching for artwork.');
+    }
+}
+
+async function searchArtworks(theme) {
+    try {
+        console.group('Search Request Diagnostics');
+        console.log('Search Theme:', theme);
+        
+        // Construct URL with proper encoding
+        const encodedTheme = encodeURIComponent(theme);
+        const searchUrl = `/search?theme=${encodedTheme}`;
+        
+        console.log('Full Search URL:', searchUrl);
+        
+        // Log full fetch configuration with diagnostic information
+        const fetchConfig = {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'no-cache',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        };
+        
+        console.log('Fetch Configuration:', fetchConfig);
+        
+        // Perform fetch with comprehensive error handling
+        const response = await fetch(searchUrl, fetchConfig);
+        
+        console.log('Response Status:', response.status);
+        console.log('Response Headers:', Object.fromEntries(response.headers.entries()));
+        
+        // Detailed response handling
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error Response:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+        }
+        
+        // Check content type
+        const contentType = response.headers.get('content-type');
+        console.log('Content Type:', contentType);
+        
+        // Robust JSON parsing
+        if (contentType && contentType.includes('application/json')) {
+            const data = await response.json();
+            console.log('Parsed JSON Data:', data);
+            console.groupEnd();
+            return data;
+        } else {
+            const text = await response.text();
+            console.error('Non-JSON Response:', text);
+            console.groupEnd();
+            throw new Error(`Expected JSON, but received: ${text}`);
+        }
+    } catch (error) {
+        console.error('Search Error:', error);
+        console.groupEnd();
+        throw error;
     }
 }
 
